@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dakotax Milk Collection</title>
+<meta name="description" content="Milk collection register for a village collection centre — suppliers, twice-daily entries, advances, payments and reports, kept in a Google Sheet.">
+<meta name="theme-color" content="#0b5f55">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b5f55'/%3E%3Crect x='8' y='9' width='16' height='3.4' rx='1.7' fill='%23fff'/%3E%3Crect x='8' y='16' width='16' height='7' rx='2' fill='%23fff' opacity='.45'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;600&family=Public+Sans:wght@400;500;650;700&display=swap">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<!-- First run: no sheet link on this device yet. -->
+<div id="welcome" hidden></div>
+
+<div class="app" id="shell">
+  <aside class="rail">
+    <div class="brand">
+      <div class="brand__mark">
+        <span class="brand__can" aria-hidden="true"></span>
+        <span id="brand-name">Dakotax</span>
+      </div>
+      <p class="brand__sub">Milk collection register</p>
+    </div>
+    <nav class="nav" id="nav" aria-label="Sections"></nav>
+    <div class="rail__foot">
+      <button class="btn btn--sm btn--block" type="button" id="refresh">Refresh from sheet</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar__band" aria-hidden="true"></div>
+      <div class="topbar__row">
+        <div class="topbar__title">
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle"></p>
+        </div>
+        <div class="topbar__spacer"></div>
+        <p class="clock"><span class="clock__dot" aria-hidden="true"></span><span id="clock-label"></span></p>
+      </div>
+    </header>
+    <main class="content" id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<nav class="tabbar" id="tabbar" aria-label="Sections"></nav>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<!-- Optional: create assets/js/config.local.js with
+     window.DAKOTAX_API_URL = 'https://script.google.com/macros/s/…/exec';
+     to ship the link with the site instead of asking each device. -->
+<script src="assets/js/config.local.js"></script>
+<script src="assets/js/util.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/charts.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/store.js"></script>
+<script src="assets/js/pages/dashboard.js"></script>
+<script src="assets/js/pages/collection.js"></script>
+<script src="assets/js/pages/suppliers.js"></script>
+<script src="assets/js/pages/advances.js"></script>
+<script src="assets/js/pages/payments.js"></script>
+<script src="assets/js/pages/reports.js"></script>
+<script src="assets/js/pages/settings.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
