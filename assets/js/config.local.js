@@ -9,4 +9,4 @@
  * site can read it. That is the same exposure as sharing the site address
  * itself, which is the trade-off of a deployment with access set to "Anyone".
  */
-window.DAKOTAX_API_URL = 'https://script.google.com/macros/s/AKfycbxuhZ8r909oikBh7pSqOhMx9NJpXggO23t2mVdlSGRNjiri5Pszx43e9Ersf-Oue3yOLw/exec';
+window.DAKOTAX_API_URL = 'https://script.google.com/macros/s/AKfycbwR85h1vu_Y3xL1blyY1egOyIfyTbKmAMB0med4Y1AGE7h6NLv_j69xnz-IwSSIH8JOYw/exec';
