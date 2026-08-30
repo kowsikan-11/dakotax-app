@@ -12,7 +12,9 @@ DX.pages.settings = (function () {
     var urlField = ui.field({
       label: 'Apps Script web-app link', name: 'apiUrl', value: DX.config.get(),
       placeholder: 'https://script.google.com/macros/s/…/exec',
-      hint: 'Stored on this device only. Every phone that uses the app needs it once.'
+      hint: DX.config.isBuiltIn()
+        ? 'This link is built into the site, so every device is connected the moment it opens the page. Saving a different one here overrides it on this device only.'
+        : 'Set on this device. Disconnect to fall back to the link built into the site.'
     });
     var testBtn = util.el('button.btn', { type: 'button' }, 'Test link');
     var connectBtn = util.el('button.btn.btn--primary', { type: 'submit' }, 'Save and reload');
@@ -64,11 +66,29 @@ DX.pages.settings = (function () {
       location.reload();
     });
 
+    var themeField = ui.field({
+      label: 'Appearance', name: 'theme', type: 'select', value: DX.theme.get(),
+      options: DX.theme.values.map(function (v) { return { value: v, label: DX.theme.label(v) }; }),
+      hint: 'Match my system follows whatever your phone or computer is set to. The choice is remembered on this device only.'
+    });
+    themeField.control.addEventListener('change', function () {
+      var choice = DX.theme.set(themeField.control.value);
+      if (DX.app && DX.app.paintTheme) DX.app.paintTheme();
+      ui.say.ok('Appearance: ' + DX.theme.label(choice).toLowerCase(),
+        choice === 'system' ? 'Now showing the ' + DX.theme.resolved() + ' theme.' : 'Remembered on this device.');
+    });
+
     root.appendChild(util.el('div.card', [
+      util.el('div.card__head', [util.el('h2', 'Appearance'),
+        util.el('p', 'This device only')]),
+      util.el('div.card__body', [themeField])
+    ]));
+
+    root.appendChild(util.el('section.section', [util.el('div.card', [
       util.el('div.card__head', [util.el('h2', 'Sheet connection'),
         util.el('p', 'This device only')]),
       util.el('div.card__body', [connForm])
-    ]));
+    ])]));
 
     if (!s.ready) return;
 
@@ -79,8 +99,12 @@ DX.pages.settings = (function () {
       options: ['INR', 'USD', 'EUR', 'GBP'].map(function (c) { return { value: c, label: c }; })
     });
     var rateField = ui.field({
-      label: 'Default rate per litre', name: 'default_rate', type: 'number', step: '0.01', min: '0',
-      value: s.settings.default_rate || '', hint: 'Used when a supplier has no rate of their own.'
+      label: 'Default buying rate', name: 'default_rate', type: 'number', step: '0.01', min: '0',
+      value: s.settings.default_rate || '', hint: 'Paid to a supplier when they have no rate of their own.'
+    });
+    var saleRateField = ui.field({
+      label: 'Default selling rate', name: 'default_sale_rate', type: 'number', step: '0.01', min: '0',
+      value: s.settings.default_sale_rate || '', hint: 'Charged to a customer when they have no rate of their own.'
     });
     var cutoverField = ui.field({
       label: 'Shift changes at', name: 'shift_cutover_hour', type: 'number', min: '0', max: '23',
@@ -98,7 +122,8 @@ DX.pages.settings = (function () {
 
     var saveBtn = util.el('button.btn.btn--primary', { type: 'submit' }, 'Save settings');
     var settingsForm = util.el('form', { novalidate: true }, [
-      util.el('div.form-grid', [nameField, currencyField, rateField]),
+      util.el('div.form-grid', [nameField, currencyField]),
+      util.el('div.form-grid', [rateField, saleRateField]),
       util.el('div.form-grid', [cutoverField, maxField, futureField]),
       util.el('div.form-actions', [saveBtn])
     ]);
@@ -144,9 +169,12 @@ DX.pages.settings = (function () {
             { label: 'Sheet timezone', value: s.timezone || 'not reported' },
             { label: 'Sheet date', value: util.fmtDate(s.serverDate) },
             { label: 'Suppliers', value: String(s.suppliers.length) },
+            { label: 'Customers', value: String(s.customers.length) },
             { label: 'Collection entries loaded', value: String(s.collections.length) },
+            { label: 'Deliveries loaded', value: String(s.sales.length) },
             { label: 'Advances loaded', value: String(s.advances.length) },
-            { label: 'Payments loaded', value: String(s.payments.length) }
+            { label: 'Payments loaded', value: String(s.payments.length) },
+            { label: 'Receipts loaded', value: String(s.receipts.length) }
           ])
         ])
       ])

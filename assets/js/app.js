@@ -1,32 +1,87 @@
 /* Shell: navigation, hash routing, the clock, and first-run setup. */
 window.DX = window.DX || {};
 
+/* ---------------------------------------------------------------------- *
+ * Theme: follow the operating system by default, or let this device pin
+ * light or dark. The choice is stamped on <html> as data-theme; app.css
+ * defines the dark tokens under both the media query and that attribute,
+ * so the manual choice wins in either direction.
+ * ---------------------------------------------------------------------- */
+DX.theme = (function () {
+  var KEY = 'dakotax.theme';
+  var VALUES = ['system', 'light', 'dark'];
+
+  function get() {
+    try {
+      var stored = localStorage.getItem(KEY);
+      return VALUES.indexOf(stored) > -1 ? stored : 'system';
+    } catch (err) { return 'system'; }
+  }
+
+  function apply(choice) {
+    if (choice === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', choice);
+  }
+
+  function set(choice) {
+    if (VALUES.indexOf(choice) < 0) choice = 'system';
+    try { localStorage.setItem(KEY, choice); } catch (err) { /* private mode */ }
+    apply(choice);
+    return choice;
+  }
+
+  /** What the viewer is actually looking at right now. */
+  function resolved() {
+    var choice = get();
+    if (choice !== 'system') return choice;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function label(choice) {
+    return { system: 'Match my system', light: 'Always light', dark: 'Always dark' }[choice || get()];
+  }
+
+  function next() { return set(VALUES[(VALUES.indexOf(get()) + 1) % VALUES.length]); }
+
+  return { get: get, set: set, apply: apply, resolved: resolved, label: label, next: next, values: VALUES };
+})();
+
 DX.app = (function () {
   var util = DX.util, ui = DX.ui, store = DX.store;
 
   var ICONS = {
     dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
-    collection: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8l-1 3H9L8 3z"/><path d="M7 6h10l1.2 13a2 2 0 0 1-2 2.2H7.8a2 2 0 0 1-2-2.2L7 6z"/><path d="M9 13h6"/></svg>',
-    suppliers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16.5 6.2a3 3 0 0 1 0 5.6"/><path d="M18 20a5.6 5.6 0 0 0-2.2-4.5"/></svg>',
+    entry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8l-1 3H9L8 3z"/><path d="M7 6h10l1.2 13a2 2 0 0 1-2 2.2H7.8a2 2 0 0 1-2-2.2L7 6z"/><path d="M9 13h6"/></svg>',
+    people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16.5 6.2a3 3 0 0 1 0 5.6"/><path d="M18 20a5.6 5.6 0 0 0-2.2-4.5"/></svg>',
     advances: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/></svg>',
-    payments: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8V6.5A1.5 1.5 0 0 0 18.5 5H5a2 2 0 0 0 0 4h14a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 19 19H5a2 2 0 0 1-2-2V7"/><circle cx="16.5" cy="14" r="1.3"/></svg>',
+    money: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8V6.5A1.5 1.5 0 0 0 18.5 5H5a2 2 0 0 0 0 4h14a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 19 19H5a2 2 0 0 1-2-2V7"/><circle cx="16.5" cy="14" r="1.3"/></svg>',
     reports: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7.5" y="12" width="3" height="5" rx="1"/><rect x="13" y="8" width="3" height="9" rx="1"/><rect x="18" y="14" width="2.5" height="3" rx="1"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 15H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.6V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>'
   };
 
   var ROUTES = [
     { path: 'dashboard', label: 'Dashboard', short: 'Home', page: 'dashboard' },
-    { path: 'collection', label: 'Daily entry', short: 'Entry', page: 'collection' },
-    { path: 'suppliers', label: 'Suppliers', short: 'People', page: 'suppliers' },
+    { path: 'entry', label: 'Daily entry', short: 'Entry', page: 'entry' },
+    { path: 'people', label: 'People', short: 'People', page: 'people' },
     { path: 'advances', label: 'Advances', short: 'Advances', page: 'advances' },
-    { path: 'payments', label: 'Payments', short: 'Pay', page: 'payments' },
+    { path: 'money', label: 'Money', short: 'Money', page: 'money' },
     { path: 'reports', label: 'Reports', short: 'Reports', page: 'reports' }
   ];
+
+  /* Links kept working after the pages were merged. */
+  var ALIASES = { collection: 'entry', suppliers: 'people', customers: 'people', payments: 'money' };
+
+  var THEME_ICONS = {
+    system: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20h8"/><path d="M12 17v3"/></svg>',
+    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+    dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z"/></svg>'
+  };
 
   var view, titleNode, subtitleNode, clockNode, navNodes = [];
 
   function currentPath() {
     var hash = (location.hash || '').replace(/^#\/?/, '').split('?')[0];
+    if (ALIASES[hash]) hash = ALIASES[hash];
     return ROUTES.concat([{ path: 'settings' }]).some(function (r) { return r.path === hash; }) ? hash : 'dashboard';
   }
 
@@ -184,6 +239,23 @@ DX.app = (function () {
     buildNav();
     window.addEventListener('hashchange', renderRoute);
 
+    var themeBtn = document.getElementById('theme-toggle');
+    function paintTheme() {
+      var choice = DX.theme.get();
+      themeBtn.setAttribute('aria-label', 'Appearance: ' + DX.theme.label(choice) + '. Click to change.');
+      themeBtn.title = DX.theme.label(choice);
+      themeBtn.dataset.theme = choice;
+      themeBtn.innerHTML = THEME_ICONS[choice];
+    }
+    themeBtn.addEventListener('click', function () {
+      var choice = DX.theme.next();
+      paintTheme();
+      ui.say.ok('Appearance: ' + DX.theme.label(choice).toLowerCase(),
+        choice === 'system' ? 'Follows whatever your phone or computer is set to.' : 'Remembered on this device.');
+    });
+    paintTheme();
+    DX.app.paintTheme = paintTheme;
+
     document.getElementById('refresh').addEventListener('click', function () {
       var btn = this;
       ui.busy(btn, true, 'Refreshing…');
@@ -216,7 +288,7 @@ DX.app = (function () {
     });
   }
 
-  return { start: start, renderRoute: function () { renderRoute(); } };
+  return { start: start, renderRoute: function () { renderRoute(); }, paintTheme: function () {} };
 })();
 
 document.addEventListener('DOMContentLoaded', DX.app.start);

@@ -149,11 +149,13 @@ DX.ui = (function () {
   }
 
   /* ------------------------------------------------------------------ *
-   * Supplier picker — type a name, a mobile number or a short ID
+   * Party picker — type a name, a mobile number or a short ID.
+   * Holds suppliers or customers; callers pass normalised people:
+   *   { id, name, sub, mobile, status }
    * ------------------------------------------------------------------ */
-  function supplierPicker(options) {
+  function partyPicker(options) {
     options = options || {};
-    var suppliers = options.suppliers || [];
+    var suppliers = options.people || [];
     var selected = null;
     var id = 'sp-' + Math.random().toString(36).slice(2, 8);
 
@@ -175,8 +177,8 @@ DX.ui = (function () {
       var pool = suppliers.filter(function (s) { return options.includeInactive || s.status !== 'Inactive'; });
       if (!q) return pool.slice(0, 12);
       return pool.filter(function (s) {
-        return s.name.toLowerCase().indexOf(q) > -1 ||
-          s.supplierId.toLowerCase().indexOf(q) > -1 ||
+        return String(s.name).toLowerCase().indexOf(q) > -1 ||
+          String(s.id).toLowerCase().indexOf(q) > -1 ||
           String(s.mobile).indexOf(q) > -1;
       }).slice(0, 12);
     }
@@ -186,7 +188,9 @@ DX.ui = (function () {
       var found = match(query);
       if (!found.length) {
         list.appendChild(util.el('p.selector__empty', {
-          text: suppliers.length ? 'No supplier matches "' + query + '".' : 'No suppliers yet — add one on the Suppliers page.'
+          text: suppliers.length
+            ? 'No ' + (options.noun || 'supplier') + ' matches "' + query + '".'
+            : 'No ' + (options.noun || 'supplier') + 's yet — add one on the People page.'
         }));
       }
       found.forEach(function (s) {
@@ -195,7 +199,7 @@ DX.ui = (function () {
           onclick: function () { choose(s); }
         }, [
           util.el('span', s.name),
-          util.el('small', s.supplierId + (s.village ? ' · ' + s.village : ''))
+          util.el('small', s.id + (s.sub ? ' · ' + s.sub : ''))
         ]));
       });
       open(true);
@@ -208,8 +212,8 @@ DX.ui = (function () {
 
     function choose(s) {
       selected = s;
-      hidden.value = s.supplierId;
-      input.value = s.name + ' · ' + s.supplierId;
+      hidden.value = s.id;
+      input.value = s.name + ' · ' + s.id;
       open(false);
       if (options.onChange) options.onChange(s);
     }
@@ -236,15 +240,58 @@ DX.ui = (function () {
       if (!wrap.contains(e.target)) open(false);
     });
 
-    wrap.setSuppliers = function (next) { suppliers = next || []; };
-    wrap.setValue = function (supplierId) {
-      var found = suppliers.filter(function (s) { return s.supplierId === supplierId; })[0];
+    wrap.setPeople = function (next) { suppliers = next || []; };
+    wrap.setValue = function (id) {
+      var found = suppliers.filter(function (s) { return s.id === id; })[0];
       if (found) choose(found);
     };
     wrap.clear = function () { selected = null; hidden.value = ''; input.value = ''; };
     wrap.get = function () { return selected; };
     wrap.control = input;
     return wrap;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Mode switch — one page, two sides of the book
+   * ------------------------------------------------------------------ */
+  function modeSwitch(options) {
+    var current = options.value || options.modes[0].key;
+    var wrap = util.el('div.modeswitch', { role: 'tablist', 'aria-label': options.label || 'View' });
+    options.modes.forEach(function (mode) {
+      wrap.appendChild(util.el('button', {
+        type: 'button', role: 'tab',
+        'aria-selected': mode.key === current ? 'true' : 'false',
+        onclick: function () {
+          if (mode.key === current) return;
+          current = mode.key;
+          var buttons = wrap.querySelectorAll('button');
+          for (var i = 0; i < buttons.length; i++) {
+            buttons[i].setAttribute('aria-selected', options.modes[i].key === current ? 'true' : 'false');
+          }
+          options.onChange(current);
+        }
+      }, [
+        mode.icon ? util.el('span', { html: mode.icon }) : null,
+        util.el('b', mode.short || mode.label),
+        mode.tail ? util.el('span', ' ' + mode.tail) : null
+      ]));
+    });
+    return wrap;
+  }
+
+  function arrowOut() {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v9"/><path d="M4.5 7.5 8 11l3.5-3.5"/><path d="M2.5 14h11"/></svg>';
+  }
+  function arrowIn() {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="M4.5 7.5 8 4l3.5 3.5"/><path d="M2.5 2h11"/></svg>';
+  }
+
+  /** Normalisers so one picker can hold either side of the book. */
+  function asSupplier(s) {
+    return { id: s.supplierId, name: s.name, sub: s.village, mobile: s.mobile, status: s.status, ratePerLitre: s.ratePerLitre, raw: s };
+  }
+  function asCustomer(c) {
+    return { id: c.customerId, name: c.name, sub: c.address, mobile: c.mobile, status: c.status, ratePerLitre: c.ratePerLitre, raw: c };
   }
 
   /* ------------------------------------------------------------------ *
@@ -289,6 +336,8 @@ DX.ui = (function () {
     say: say, explain: explain, reportError: reportError,
     setFieldError: setFieldError, clearFieldErrors: clearFieldErrors,
     field: field, chip: chip, shiftChip: shiftChip, table: table, empty: empty,
-    supplierPicker: supplierPicker, confirmAction: confirmAction, busy: busy
+    partyPicker: partyPicker, confirmAction: confirmAction, busy: busy,
+    modeSwitch: modeSwitch, arrowIn: arrowIn, arrowOut: arrowOut,
+    asSupplier: asSupplier, asCustomer: asCustomer
   };
 })();

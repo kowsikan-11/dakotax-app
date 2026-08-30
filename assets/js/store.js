@@ -13,10 +13,14 @@ DX.store = (function () {
     serverDate: util.isoToday(),
     timezone: '',
     suppliers: [],
+    customers: [],
     collections: [],
+    sales: [],
     advances: [],
     payments: [],
+    receipts: [],
     advanceBalances: {},
+    customerBalances: {},
     recentDays: [],
     shift: 'Morning',
     shiftIsAuto: true
@@ -52,10 +56,14 @@ DX.store = (function () {
       state.serverDate = data.serverDate || util.isoToday();
       state.timezone = data.timezone || '';
       state.suppliers = data.suppliers || [];
+      state.customers = data.customers || [];
       state.collections = data.collections || [];
+      state.sales = data.sales || [];
       state.advances = data.advances || [];
       state.payments = data.payments || [];
+      state.receipts = data.receipts || [];
       state.advanceBalances = data.advanceBalances || {};
+      state.customerBalances = data.customerBalances || {};
       state.recentDays = data.recentDays || [];
       state.ready = true;
       state.loading = false;
@@ -94,8 +102,25 @@ DX.store = (function () {
     return Number(state.advanceBalances[supplierId] || 0);
   }
 
+  function activeCustomers() {
+    return state.customers.filter(function (c) { return c.status !== 'Inactive'; });
+  }
+
+  function customer(customerId) {
+    return state.customers.filter(function (c) { return c.customerId === customerId; })[0] || null;
+  }
+
+  /** Positive = they owe us. Negative = they are in credit. */
+  function owedBy(customerId) {
+    return Number(state.customerBalances[customerId] || 0);
+  }
+
   function collectionsOn(dateIso) {
     return state.collections.filter(function (c) { return c.date === dateIso; });
+  }
+
+  function salesOn(dateIso) {
+    return state.sales.filter(function (s) { return s.date === dateIso; });
   }
 
   function todayTotals() {
@@ -110,10 +135,28 @@ DX.store = (function () {
     };
   }
 
+  function todaySaleTotals() {
+    var rows = salesOn(state.serverDate);
+    return {
+      litres: util.sum(rows, 'litres'),
+      amount: util.sum(rows, 'amount'),
+      entries: rows.length,
+      morning: util.sum(rows.filter(function (r) { return r.shift === 'Morning'; }), 'litres'),
+      evening: util.sum(rows.filter(function (r) { return r.shift === 'Evening'; }), 'litres'),
+      customers: rows.reduce(function (set, r) { set[r.customerId] = 1; return set; }, {})
+    };
+  }
+
   function monthTotals() {
     var from = util.monthStart(state.serverDate);
-    var rows = state.collections.filter(function (c) { return c.date >= from && c.date <= state.serverDate; });
-    return { litres: util.sum(rows, 'litres'), amount: util.sum(rows, 'amount'), entries: rows.length };
+    var bought = state.collections.filter(function (c) { return c.date >= from && c.date <= state.serverDate; });
+    var sold = state.sales.filter(function (s) { return s.date >= from && s.date <= state.serverDate; });
+    return {
+      litres: util.sum(bought, 'litres'), amount: util.sum(bought, 'amount'), entries: bought.length,
+      soldLitres: util.sum(sold, 'litres'), soldAmount: util.sum(sold, 'amount'), soldEntries: sold.length,
+      marginAmount: util.sum(sold, 'amount') - util.sum(bought, 'amount'),
+      marginLitres: util.sum(sold, 'litres') - util.sum(bought, 'litres')
+    };
   }
 
   function totalOutstanding() {
@@ -121,6 +164,15 @@ DX.store = (function () {
       return t + Math.max(0, Number(state.advanceBalances[k]) || 0);
     }, 0);
   }
+
+  /** Only what customers still owe; credit balances are not netted off. */
+  function totalReceivable() {
+    return Object.keys(state.customerBalances).reduce(function (t, k) {
+      return t + Math.max(0, Number(state.customerBalances[k]) || 0);
+    }, 0);
+  }
+
+  function defaultSaleRate() { return Number(state.settings.default_sale_rate) || 0; }
 
   function currency() { return state.settings.currency || 'INR'; }
   function money(value) { return util.fmtMoney(value, currency()); }
@@ -134,7 +186,10 @@ DX.store = (function () {
     var out = [];
     for (var i = days - 1; i >= 0; i--) {
       var iso = util.addDays(state.serverDate, -i);
-      out.push(byDate[iso] || { date: iso, litres: 0, amount: 0, morningLitres: 0, eveningLitres: 0 });
+      out.push(byDate[iso] || {
+        date: iso, litres: 0, amount: 0, morningLitres: 0, eveningLitres: 0,
+        soldLitres: 0, soldAmount: 0, soldMorningLitres: 0, soldEveningLitres: 0
+      });
     }
     return out;
   }
@@ -143,8 +198,11 @@ DX.store = (function () {
     state: state, on: on, emit: emit, load: load, refresh: refresh,
     applyShift: applyShift, autoShift: autoShift,
     activeSuppliers: activeSuppliers, supplier: supplier, balanceFor: balanceFor,
-    collectionsOn: collectionsOn, todayTotals: todayTotals, monthTotals: monthTotals,
-    totalOutstanding: totalOutstanding, denseDays: denseDays,
-    currency: currency, money: money, defaultRate: defaultRate, businessName: businessName
+    activeCustomers: activeCustomers, customer: customer, owedBy: owedBy,
+    collectionsOn: collectionsOn, salesOn: salesOn,
+    todayTotals: todayTotals, todaySaleTotals: todaySaleTotals, monthTotals: monthTotals,
+    totalOutstanding: totalOutstanding, totalReceivable: totalReceivable, denseDays: denseDays,
+    currency: currency, money: money, defaultRate: defaultRate,
+    defaultSaleRate: defaultSaleRate, businessName: businessName
   };
 })();

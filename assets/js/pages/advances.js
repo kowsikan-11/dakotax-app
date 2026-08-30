@@ -11,17 +11,17 @@ DX.pages.advances = (function () {
 
     if (!store.activeSuppliers().length) {
       root.appendChild(ui.empty('No active suppliers', 'Advances are recorded against a supplier.',
-        util.el('a.btn.btn--primary', { href: '#/suppliers' }, 'Go to Suppliers')));
+        util.el('a.btn.btn--primary', { href: '#/people' }, 'Go to People')));
       return;
     }
 
     /* --- form --- */
     var balanceNote = util.el('p.stat__meta');
-    var picker = ui.supplierPicker({
-      suppliers: s.suppliers, label: 'Supplier',
+    var picker = ui.partyPicker({
+      people: s.suppliers.map(ui.asSupplier), noun: 'supplier', label: 'Supplier',
       onChange: function (supplier) {
         if (!supplier) { balanceNote.textContent = ''; return; }
-        var balance = store.balanceFor(supplier.supplierId);
+        var balance = store.balanceFor(supplier.id);
         balanceNote.textContent = balance > 0
           ? 'Outstanding advance: ' + store.money(balance) + '. A recovery cannot go above this.'
           : 'No advance outstanding for ' + supplier.name + '.';
@@ -74,9 +74,13 @@ DX.pages.advances = (function () {
 
     root.appendChild(util.el('div.card', [
       util.el('div.card__head', [util.el('h2', 'Record an advance'),
-        util.el('p', 'Given adds to the balance, recovered takes it back down')]),
+        util.el('p', 'Money handed to a supplier before the milk bill. Given adds to the balance, recovered takes it back down')]),
       util.el('div.card__body', [form])
     ]));
+    root.appendChild(util.el('p.hint', {
+      style: 'margin:8px 2px 0',
+      text: 'Advances are the supplier side only. What a customer owes you is tracked as a running balance on the Money page.'
+    }));
 
     /* --- outstanding balances --- */
     var owing = s.suppliers

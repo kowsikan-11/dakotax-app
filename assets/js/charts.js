@@ -258,9 +258,124 @@ DX.charts = (function () {
     watch(container, draw);
   }
 
+  /* ---------------------------------------------------------------------- *
+   * Diverging columns: bought above the line, sold below it. Direction is
+   * carried by position, so the two sides stay legible with no colour vision
+   * at all, and the gap between them reads as the day's margin.
+   * ---------------------------------------------------------------------- */
+  function diverging(container, options) {
+    var util = DX.util;
+    var rows = options.rows || [];
+    var up = options.up, down = options.down;
+    var unit = options.unit || '';
+
+    function draw() {
+      util.clear(container);
+      if (!rows.length) {
+        container.appendChild(util.el('p.empty', { text: options.emptyText || 'Nothing recorded in this period yet.' }));
+        return;
+      }
+      container.appendChild(legend([up, down]));
+
+      var width = Math.max(container.clientWidth || 640, 280);
+      var height = options.height || 240;
+      var pad = { top: 12, right: 8, bottom: 26, left: 40 };
+      var plotW = width - pad.left - pad.right;
+      var plotH = height - pad.top - pad.bottom;
+      var half = plotH / 2;
+      var zeroY = pad.top + half;
+
+      var max = niceMax(Math.max.apply(null, rows.map(function (r) {
+        return Math.max(Number(r[up.key]) || 0, Number(r[down.key]) || 0);
+      }).concat([1])));
+
+      var step = plotW / rows.length;
+      var barW = Math.max(3, Math.min(26, step - 8));
+
+      var svg = svgEl('svg', {
+        class: 'chart', viewBox: '0 0 ' + width + ' ' + height,
+        width: '100%', height: height, role: 'img',
+        'aria-label': options.ariaLabel || 'Diverging column chart'
+      });
+
+      [1, 0.5, 0, -0.5, -1].forEach(function (f) {
+        var y = zeroY - half * f;
+        svg.appendChild(svgEl('line', {
+          class: f === 0 ? 'zero-line' : 'grid-line',
+          x1: pad.left, x2: width - pad.right, y1: y, y2: y
+        }));
+        if (f === 1 || f === -1 || f === 0) {
+          var label = svgEl('text', { x: pad.left - 6, y: y + 3, 'text-anchor': 'end' });
+          label.textContent = util.fmtNum(Math.abs(max * f), 0);
+          svg.appendChild(label);
+        }
+      });
+
+      rows.forEach(function (row, i) {
+        var x = pad.left + i * step + (step - barW) / 2;
+        var upValue = Number(row[up.key]) || 0;
+        var downValue = Number(row[down.key]) || 0;
+        var upH = (upValue / max) * half;
+        var downH = (downValue / max) * half;
+
+        if (upValue > 0) {
+          svg.appendChild(svgEl('path', {
+            class: 'bar', fill: up.color,
+            d: barPath(x, zeroY - upH - 2, barW, Math.max(upH, 1), 4)
+          }));
+        }
+        if (downValue > 0) {
+          // Mirrored: the rounded end is the one away from the zero line.
+          var g = svgEl('g', { transform: 'translate(0,' + (2 * zeroY) + ') scale(1,-1)' });
+          g.appendChild(svgEl('path', {
+            class: 'bar', fill: down.color,
+            d: barPath(x, zeroY - downH - 2, barW, Math.max(downH, 1), 4)
+          }));
+          svg.appendChild(g);
+        }
+
+        var margin = downValue - upValue;
+        var hit = svgEl('rect', {
+          x: pad.left + i * step, y: pad.top, width: step, height: plotH,
+          fill: 'transparent', tabindex: '0', role: 'button',
+          'aria-label': (options.labelOf ? options.labelOf(row) : row.date) + ': ' +
+            up.label + ' ' + util.fmtNum(upValue, 1) + ' ' + unit + ', ' +
+            down.label + ' ' + util.fmtNum(downValue, 1) + ' ' + unit
+        });
+        function show() {
+          var box = hit.getBoundingClientRect();
+          var fmt = options.format || function (v) { return util.fmtNum(v, 1); };
+          showTip('<h4>' + util.escapeHtml(options.labelOf ? options.labelOf(row) : row.date) + '</h4><dl>' +
+            '<dt><span class="swatch" style="background:' + up.color + '"></span>' + util.escapeHtml(up.label) + '</dt>' +
+            '<dd>' + fmt(upValue) + '</dd>' +
+            '<dt><span class="swatch" style="background:' + down.color + '"></span>' + util.escapeHtml(down.label) + '</dt>' +
+            '<dd>' + fmt(downValue) + '</dd>' +
+            '<dt><b>' + util.escapeHtml(options.marginLabel || 'Difference') + '</b></dt>' +
+            '<dd><b>' + (margin >= 0 ? '+' : '−') + fmt(Math.abs(margin)) + '</b></dd></dl>',
+            box.left + box.width / 2, box.top + 4);
+        }
+        hit.addEventListener('mouseenter', show);
+        hit.addEventListener('focus', show);
+        hit.addEventListener('mouseleave', hideTip);
+        hit.addEventListener('blur', hideTip);
+        svg.appendChild(hit);
+
+        if (rows.length <= 10 || i === 0 || i === rows.length - 1 || i === Math.floor(rows.length / 2)) {
+          var tick = svgEl('text', { x: pad.left + i * step + step / 2, y: height - 8, 'text-anchor': 'middle' });
+          tick.textContent = options.tickOf ? options.tickOf(row) : util.fmtDate(row.date, 'short');
+          svg.appendChild(tick);
+        }
+      });
+
+      container.appendChild(svg);
+    }
+
+    watch(container, draw);
+  }
+
   function seriesColor(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
   }
 
-  return { stacked: stacked, ranked: ranked, seriesColor: seriesColor, hideTip: hideTip };
+  return { stacked: stacked, ranked: ranked, diverging: diverging, seriesColor: seriesColor, hideTip: hideTip };
 })();

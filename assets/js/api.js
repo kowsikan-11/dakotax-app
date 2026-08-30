@@ -14,8 +14,18 @@ DX.config = (function () {
   function read() {
     var fromQuery = new URLSearchParams(location.search).get('api');
     if (fromQuery) { write(fromQuery); stripQuery(); return fromQuery; }
-    if (window.DAKOTAX_API_URL) return window.DAKOTAX_API_URL;
-    try { return localStorage.getItem(KEY) || ''; } catch (err) { return ''; }
+    var stored = '';
+    try { stored = localStorage.getItem(KEY) || ''; } catch (err) { /* private mode */ }
+    // A link set on this device wins, so one phone can be pointed at a test
+    // sheet; otherwise the link built into the site is used.
+    return stored || window.DAKOTAX_API_URL || '';
+  }
+
+  /** True when the link came from the site rather than from this device. */
+  function isBuiltIn() {
+    var stored = '';
+    try { stored = localStorage.getItem(KEY) || ''; } catch (err) { /* private mode */ }
+    return !stored && !!window.DAKOTAX_API_URL;
   }
 
   function write(url) {
@@ -37,7 +47,7 @@ DX.config = (function () {
     return /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(String(url || '').trim());
   }
 
-  return { get: read, set: write, clear: clearStored, looksValid: looksValid };
+  return { get: read, set: write, clear: clearStored, looksValid: looksValid, isBuiltIn: isBuiltIn };
 })();
 
 DX.api = (function () {

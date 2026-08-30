@@ -98,6 +98,44 @@ body[data-shift="Evening"] {
   }
 }
 
+/* The viewer's own choice wins over the operating system, both ways. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas:       #0f151c;
+  --surface:      #151c24;
+  --surface-sunk: #1b232c;
+  --line:         #27313d;
+  --line-strong:  #3a4756;
+
+  --ink:          #e9eef3;
+  --ink-2:        #a9b6c3;
+  --ink-3:        #7d8b99;
+
+  --brand:        #2f9c8c;
+  --brand-ink:    #7fd3c6;
+  --brand-soft:   #18302e;
+
+  --morning:      #c4831f;
+  --morning-soft: #2c2415;
+  --evening:      #6c7bd4;
+  --evening-soft: #1c2035;
+
+  --series-1:     #c4831f;
+  --series-2:     #6c7bd4;
+  --series-3:     #10a18c;
+
+  --danger:       #e8756f;
+  --danger-soft:  #2e1a19;
+  --good:         #4cae7d;
+  --good-soft:    #16281f;
+  --warn:         #d0a03f;
+  --warn-soft:    #2a2214;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, .5);
+}
+
+
 * { box-sizing: border-box; }
 
 html, body { height: 100%; }
@@ -202,6 +240,15 @@ a { color: var(--brand); }
   font-size: .8rem; color: var(--ink-2); background: var(--surface-sunk);
 }
 .clock__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--shift); flex: none; }
+
+.iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; flex: none; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--surface-sunk); color: var(--ink-2); cursor: pointer;
+}
+.iconbtn:hover { background: var(--surface); color: var(--ink); }
+.iconbtn svg { width: 18px; height: 18px; }
 
 .content { padding: 20px; max-width: 1180px; width: 100%; }
 
@@ -311,6 +358,9 @@ a { color: var(--brand); }
 }
 .field input[type="number"] { font-family: var(--font-mono); }
 .field--error input, .field--error select { border-color: var(--danger); }
+.field input:disabled, .field select:disabled, .field textarea:disabled {
+  opacity: .55; cursor: not-allowed; background: var(--surface-sunk);
+}
 .field__error { font-size: .75rem; color: var(--danger); font-weight: 600; }
 .field--big input { font-family: var(--font-mono); font-size: 1.6rem; font-weight: 600; min-height: 60px; letter-spacing: -.03em; }
 
@@ -345,6 +395,32 @@ form:not(.filters) > .grid + .form-grid { margin-top: 14px; }
 .shiftpick__note { font-size: .75rem; color: var(--ink-3); margin: 0; line-height: 1.45; }
 .shiftpick__note b { color: var(--ink-2); font-weight: 650; }
 
+/* Mode switch — buy side / sell side. Deliberately monochrome: the shift accent
+   is the app's one colour signal, so direction is carried by words and arrows. */
+.modeswitch {
+  display: inline-flex; gap: 3px; padding: 3px; margin-bottom: 14px;
+  background: var(--surface-sunk); border: 1px solid var(--line);
+  border-radius: 999px; max-width: 100%; overflow-x: auto;
+}
+.modeswitch button {
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  font: inherit; font-size: .85rem; font-weight: 600; color: var(--ink-3);
+  background: none; border: 0; border-radius: 999px;
+  padding: 8px 15px; min-height: 38px; cursor: pointer;
+}
+.modeswitch button:hover { color: var(--ink); }
+.modeswitch button[aria-selected="true"] {
+  background: var(--surface); color: var(--ink);
+  box-shadow: var(--shadow-1); font-weight: 650;
+}
+.modeswitch button svg { width: 15px; height: 15px; flex: none; }
+@media (max-width: 480px) {
+  .modeswitch { width: 100%; }
+  .modeswitch button { flex: 1; justify-content: center; padding: 8px 10px; font-size: .8rem; }
+  .modeswitch button span { display: none; }
+  .modeswitch button b { font-weight: 650; }
+}
+
 /* Chips / badges */
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
@@ -356,6 +432,12 @@ form:not(.filters) > .grid + .form-grid { margin-top: 14px; }
 .chip--good { background: var(--good-soft); color: var(--good); border-color: var(--good); }
 .chip--muted { background: var(--surface-sunk); color: var(--ink-3); border-color: var(--line-strong); }
 .chip--warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.chip--in { background: var(--brand-soft); color: var(--brand-ink); border-color: var(--brand); }
+.chip--out { background: var(--surface-sunk); color: var(--ink-2); border-color: var(--line-strong); }
+
+/* A figure that can be negative — credit on the sell side, for instance. */
+.credit { color: var(--good); }
+.owing { color: var(--ink); }
 
 .filters {
   display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
@@ -417,6 +499,7 @@ table.data th.right { text-align: right; }
 .chart .bar { transition: opacity .12s ease; }
 .chart .bar:hover { opacity: .82; }
 .chart .value-label { fill: var(--ink-2); font-size: 10px; font-family: var(--font-mono); }
+.chart .zero-line { stroke: var(--line-strong); stroke-width: 1; }
 
 .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 0 0 10px; padding: 0; list-style: none; }
 .legend li { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--ink-2); }

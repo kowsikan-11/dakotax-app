@@ -15,6 +15,9 @@ var SHEET = {
   collections: 'Collections',
   advances: 'Advances',
   payments: 'Payments',
+  customers: 'Customers',
+  sales: 'Sales',
+  receipts: 'Receipts',
   settings: 'Settings'
 };
 
@@ -23,13 +26,17 @@ var HEADERS = {
   Collections: ['entry_id', 'date', 'supplier_id', 'supplier_name', 'shift', 'litres', 'fat', 'snf', 'rate_per_litre', 'amount', 'note', 'recorded_at'],
   Advances: ['advance_id', 'date', 'supplier_id', 'supplier_name', 'type', 'amount', 'note', 'recorded_at'],
   Payments: ['payment_id', 'date', 'supplier_id', 'supplier_name', 'period_from', 'period_to', 'milk_amount', 'advance_recovered', 'net_amount', 'mode', 'reference', 'note', 'recorded_at'],
+  Customers: ['customer_id', 'name', 'mobile', 'address', 'rate_per_litre', 'status', 'created_at'],
+  Sales: ['sale_id', 'date', 'customer_id', 'customer_name', 'shift', 'litres', 'rate_per_litre', 'amount', 'note', 'recorded_at'],
+  Receipts: ['receipt_id', 'date', 'customer_id', 'customer_name', 'amount', 'mode', 'reference', 'note', 'recorded_at'],
   Settings: ['key', 'value', 'note']
 };
 
 var DEFAULT_SETTINGS = [
   ['business_name', 'Dakotax Milk Collection', 'Shown in the app header'],
   ['currency', 'INR', 'Currency code used for display'],
-  ['default_rate', '32', 'Rate per litre suggested on a new entry'],
+  ['default_rate', '32', 'Rate per litre paid to a supplier, suggested on a new entry'],
+  ['default_sale_rate', '40', 'Rate per litre charged to a customer, suggested on a new delivery'],
   ['shift_cutover_hour', '12', 'Before this hour the app pre-selects Morning, from it Evening (0-23)'],
   ['allow_future_dates', 'no', 'yes = collection entries may be dated in the future'],
   ['max_litres_per_entry', '200', 'Entries above this are rejected as a typing mistake']
@@ -105,6 +112,18 @@ function route(action, payload) {
       case 'payments.save':       return ok(apiSavePayment(payload.payment || {}));
       case 'payments.delete':     return ok(apiDeleteRow(SHEET.payments, 'payment_id', payload.paymentId, 'payment'));
       case 'payments.due':        return ok(apiPaymentDue(payload.supplierId, payload.from, payload.to));
+
+      case 'customers.list':      return ok({ customers: readCustomers() });
+      case 'customers.save':      return ok(apiSaveCustomer(payload.customer || {}));
+      case 'customers.setStatus': return ok(apiSetCustomerStatus(payload.customerId, payload.status));
+
+      case 'sales.list':          return ok({ sales: apiListSales(payload.filter || {}) });
+      case 'sales.save':          return ok(apiSaveSale(payload.sale || {}));
+      case 'sales.delete':        return ok(apiDeleteRow(SHEET.sales, 'sale_id', payload.saleId, 'delivery'));
+
+      case 'receipts.list':       return ok({ receipts: apiListReceipts(payload.filter || {}) });
+      case 'receipts.save':       return ok(apiSaveReceipt(payload.receipt || {}));
+      case 'receipts.delete':     return ok(apiDeleteRow(SHEET.receipts, 'receipt_id', payload.receiptId, 'receipt'));
 
       case 'reports.summary':     return ok(apiReportSummary(payload.filter || {}));
 
@@ -730,11 +749,301 @@ function apiSavePayment(input) {
 }
 
 /* ========================================================================= *
+ * Customers — the sell side. Money flows towards us.
+ * ========================================================================= */
+
+function readCustomers() {
+  return readAll(SHEET.customers).map(function (row) {
+    return {
+      customerId: asText(row.customer_id),
+      name: asText(row.name),
+      mobile: asText(row.mobile),
+      address: asText(row.address),
+      ratePerLitre: row.rate_per_litre === '' ? null : Number(row.rate_per_litre),
+      status: asText(row.status) || 'Active',
+      createdAt: asText(row.created_at)
+    };
+  }).filter(function (c) { return c.customerId; });
+}
+
+function findCustomer(customerId) {
+  var wanted = asText(customerId).toLowerCase();
+  var all = readCustomers();
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].customerId.toLowerCase() === wanted) return all[i];
+  }
+  return null;
+}
+
+function apiSaveCustomer(input) {
+  return withLock(function () {
+    var customerId = requireText(input.customerId, 'Customer ID', 'customerId', 20);
+    if (!/^[A-Za-z0-9_-]+$/.test(customerId)) {
+      stop('VALIDATION', 'Customer ID can use letters, numbers, hyphen and underscore only — no spaces. Received "' + customerId + '".', 'customerId');
+    }
+    var record = {
+      customer_id: customerId,
+      name: requireText(input.name, 'Customer name', 'name', 80),
+      mobile: requireMobile(input.mobile, 'mobile'),
+      address: asText(input.address).slice(0, 80),
+      rate_per_litre: requireNumber(input.ratePerLitre, 'Rate per litre', 'ratePerLitre', { optional: true, min: 0, max: 5000 }),
+      status: requireOneOf(input.status || 'Active', ['Active', 'Inactive'], 'Status', 'status'),
+      created_at: nowIso()
+    };
+
+    var rows = readAll(SHEET.customers);
+    var existingRow = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (asText(rows[i].customer_id).toLowerCase() === customerId.toLowerCase()) { existingRow = rows[i]; break; }
+    }
+
+    if (input.mode === 'create' && existingRow) {
+      stop('DUPLICATE', 'Customer ID "' + customerId + '" already belongs to ' + asText(existingRow.name) + '. Pick a different ID, or open that customer to edit them.', 'customerId');
+    }
+
+    if (existingRow) {
+      record.created_at = asText(existingRow.created_at) || record.created_at;
+      updateRow(SHEET.customers, existingRow.__row, record);
+      return { customer: findCustomer(customerId), created: false };
+    }
+    appendRow(SHEET.customers, record);
+    return { customer: findCustomer(customerId), created: true };
+  });
+}
+
+function apiSetCustomerStatus(customerId, status) {
+  return withLock(function () {
+    var wanted = requireText(customerId, 'Customer ID', 'customerId');
+    var nextStatus = requireOneOf(status, ['Active', 'Inactive'], 'Status', 'status');
+    var rows = readAll(SHEET.customers);
+    for (var i = 0; i < rows.length; i++) {
+      if (asText(rows[i].customer_id).toLowerCase() === wanted.toLowerCase()) {
+        sheet(SHEET.customers).getRange(rows[i].__row, HEADERS.Customers.indexOf('status') + 1).setValue(nextStatus);
+        return { customerId: wanted, status: nextStatus };
+      }
+    }
+    stop('NOT_FOUND', 'No customer with ID "' + wanted + '" was found.', 'customerId');
+  });
+}
+
+/* ---- deliveries ---------------------------------------------------------- */
+
+function mapSale(row) {
+  return {
+    saleId: asText(row.sale_id),
+    date: asText(row.date),
+    customerId: asText(row.customer_id),
+    customerName: asText(row.customer_name),
+    shift: asText(row.shift),
+    litres: Number(row.litres) || 0,
+    ratePerLitre: Number(row.rate_per_litre) || 0,
+    amount: Number(row.amount) || 0,
+    note: asText(row.note),
+    recordedAt: asText(row.recorded_at)
+  };
+}
+
+function readSales() {
+  return readAll(SHEET.sales).map(mapSale).filter(function (s) { return s.saleId; });
+}
+
+/** Sales and receipts key on customerId, so applyFilter needs the other name. */
+function applyCustomerFilter(rows, filter) {
+  var from = filter.from ? asText(filter.from) : null;
+  var to = filter.to ? asText(filter.to) : null;
+  var customerId = filter.customerId ? asText(filter.customerId).toLowerCase() : null;
+  var shift = filter.shift ? asText(filter.shift).toLowerCase() : null;
+  return rows.filter(function (r) {
+    if (from && r.date < from) return false;
+    if (to && r.date > to) return false;
+    if (customerId && String(r.customerId).toLowerCase() !== customerId) return false;
+    if (shift && r.shift && String(r.shift).toLowerCase() !== shift) return false;
+    return true;
+  });
+}
+
+function apiListSales(filter) {
+  var rows = applyCustomerFilter(readSales(), filter).sort(byDateDesc);
+  var limit = Number(filter.limit) || 0;
+  return limit > 0 ? rows.slice(0, limit) : rows;
+}
+
+function apiSaveSale(input) {
+  return withLock(function () {
+    var settings = readSettings();
+    var saleDate = requireDate(input.date, 'Delivery date', 'date');
+    if (settings.allow_future_dates !== 'yes' && saleDate > today()) {
+      stop('VALIDATION', 'That date is in the future. Today is ' + prettyDate(today()) + '.', 'date');
+    }
+
+    var customerId = requireText(input.customerId, 'Customer', 'customerId');
+    var customer = findCustomer(customerId);
+    if (!customer) stop('NOT_FOUND', 'No customer with ID "' + customerId + '" is on the Customers sheet. Add them first.', 'customerId');
+    if (customer.status === 'Inactive' && !input.saleId) {
+      stop('VALIDATION', customer.name + ' is marked Inactive. Set them back to Active on the People page before recording a delivery.', 'customerId');
+    }
+
+    var shift = requireOneOf(input.shift, SHIFTS, 'Shift', 'shift');
+    var maxLitres = Number(settings.max_litres_per_entry) || 200;
+    var litres = requireNumber(input.litres, 'Litres', 'litres', { gt: 0, max: maxLitres, dp: 2 });
+    var rate = requireNumber(
+      input.ratePerLitre === '' || input.ratePerLitre === undefined || input.ratePerLitre === null
+        ? (customer.ratePerLitre || settings.default_sale_rate)
+        : input.ratePerLitre,
+      'Rate per litre', 'ratePerLitre', { gt: 0, max: 5000, dp: 2 });
+
+    var rows = readAll(SHEET.sales);
+    var editingRow = null;
+    if (input.saleId) {
+      for (var i = 0; i < rows.length; i++) {
+        if (asText(rows[i].sale_id) === asText(input.saleId)) { editingRow = rows[i]; break; }
+      }
+      if (!editingRow) stop('NOT_FOUND', 'That delivery was deleted by someone else. Refresh and enter it again.', 'saleId');
+    }
+
+    // Same guard as the buy side: one delivery per customer, per date, per shift.
+    for (var j = 0; j < rows.length; j++) {
+      var r = rows[j];
+      if (editingRow && r.__row === editingRow.__row) continue;
+      if (asText(r.date) === saleDate &&
+          asText(r.customer_id).toLowerCase() === customer.customerId.toLowerCase() &&
+          asText(r.shift).toLowerCase() === shift.toLowerCase()) {
+        stop('DUPLICATE',
+          customer.name + ' already has a ' + shift + ' delivery for ' + prettyDate(saleDate) +
+          ' (' + Number(r.litres) + ' L). Open that delivery to change it, or switch the shift.',
+          'shift');
+      }
+    }
+
+    var record = {
+      sale_id: editingRow ? asText(editingRow.sale_id) : newId('SAL'),
+      date: saleDate,
+      customer_id: customer.customerId,
+      customer_name: customer.name,
+      shift: shift,
+      litres: litres,
+      rate_per_litre: rate,
+      amount: round(litres * rate, 2),
+      note: asText(input.note).slice(0, 200),
+      recorded_at: nowIso()
+    };
+
+    if (editingRow) {
+      updateRow(SHEET.sales, editingRow.__row, record);
+      return { sale: mapSale(record), created: false };
+    }
+    appendRow(SHEET.sales, record);
+    return { sale: mapSale(record), created: true };
+  });
+}
+
+/* ---- receipts ------------------------------------------------------------ */
+
+function mapReceipt(row) {
+  return {
+    receiptId: asText(row.receipt_id),
+    date: asText(row.date),
+    customerId: asText(row.customer_id),
+    customerName: asText(row.customer_name),
+    amount: Number(row.amount) || 0,
+    mode: asText(row.mode),
+    reference: asText(row.reference),
+    note: asText(row.note),
+    recordedAt: asText(row.recorded_at)
+  };
+}
+
+function readReceipts() {
+  return readAll(SHEET.receipts).map(mapReceipt).filter(function (r) { return r.receiptId; });
+}
+
+function apiListReceipts(filter) {
+  return applyCustomerFilter(readReceipts(), filter).sort(byDateDesc);
+}
+
+/**
+ * What a customer owes: everything delivered to them, less everything they have
+ * paid. A negative number means they are in credit — they paid ahead.
+ */
+function customerBalance(customerId, upToDate) {
+  var wanted = String(customerId).toLowerCase();
+  var owed = 0;
+  readSales().forEach(function (s) {
+    if (String(s.customerId).toLowerCase() !== wanted) return;
+    if (upToDate && s.date > upToDate) return;
+    owed += s.amount;
+  });
+  readReceipts().forEach(function (r) {
+    if (String(r.customerId).toLowerCase() !== wanted) return;
+    if (upToDate && r.date > upToDate) return;
+    owed -= r.amount;
+  });
+  return round(owed, 2);
+}
+
+function apiSaveReceipt(input) {
+  return withLock(function () {
+    var date = requireDate(input.date, 'Receipt date', 'date');
+    var customer = findCustomer(requireText(input.customerId, 'Customer', 'customerId'));
+    if (!customer) stop('NOT_FOUND', 'No customer with that ID is on the Customers sheet.', 'customerId');
+    var amount = requireNumber(input.amount, 'Amount', 'amount', { gt: 0, max: 10000000, dp: 2 });
+    var mode = requireOneOf(input.mode || 'Cash', PAYMENT_MODES, 'Received by', 'mode');
+
+    var rows = readAll(SHEET.receipts);
+    var editingRow = null;
+    if (input.receiptId) {
+      for (var i = 0; i < rows.length; i++) {
+        if (asText(rows[i].receipt_id) === asText(input.receiptId)) { editingRow = rows[i]; break; }
+      }
+      if (!editingRow) stop('NOT_FOUND', 'That receipt was deleted by someone else. Refresh and enter it again.', 'receiptId');
+    }
+
+    // A customer can genuinely pay twice in a day, so an identical amount on the
+    // same day is a warning rather than a refusal.
+    var warning = null;
+    for (var j = 0; j < rows.length; j++) {
+      var r = rows[j];
+      if (editingRow && r.__row === editingRow.__row) continue;
+      if (asText(r.date) === date &&
+          asText(r.customer_id).toLowerCase() === customer.customerId.toLowerCase() &&
+          Math.abs((Number(r.amount) || 0) - amount) < 0.001) {
+        warning = customer.name + ' already has a receipt for the same amount on ' + prettyDate(date) +
+          '. Saved anyway — delete one if it was entered twice.';
+        break;
+      }
+    }
+
+    var record = {
+      receipt_id: editingRow ? asText(editingRow.receipt_id) : newId('RCP'),
+      date: date,
+      customer_id: customer.customerId,
+      customer_name: customer.name,
+      amount: amount,
+      mode: mode,
+      reference: asText(input.reference).slice(0, 60),
+      note: asText(input.note).slice(0, 200),
+      recorded_at: nowIso()
+    };
+
+    if (editingRow) updateRow(SHEET.receipts, editingRow.__row, record);
+    else appendRow(SHEET.receipts, record);
+
+    return {
+      receipt: mapReceipt(record),
+      created: !editingRow,
+      warning: warning,
+      balance: customerBalance(customer.customerId)
+    };
+  });
+}
+
+/* ========================================================================= *
  * Reporting
  * ========================================================================= */
 
 function apiReportSummary(filter) {
   var collections = applyFilter(readCollections(), filter);
+  var sales = applyCustomerFilter(readSales(), filter);
   var perSupplier = {};
   var perDay = {};
   var totals = { litres: 0, amount: 0, entries: 0, morningLitres: 0, eveningLitres: 0 };
@@ -766,10 +1075,41 @@ function apiReportSummary(filter) {
     return s;
   }).sort(function (a, b) { return b.litres - a.litres; });
 
+  /* ---- the sell side, same shape ---- */
+  var perCustomer = {};
+  var saleTotals = { litres: 0, amount: 0, entries: 0, morningLitres: 0, eveningLitres: 0 };
+
+  sales.forEach(function (s) {
+    saleTotals.litres += s.litres;
+    saleTotals.amount += s.amount;
+    saleTotals.entries++;
+    if (s.shift === 'Morning') saleTotals.morningLitres += s.litres; else saleTotals.eveningLitres += s.litres;
+
+    var c = perCustomer[s.customerId] || (perCustomer[s.customerId] = {
+      customerId: s.customerId, customerName: s.customerName,
+      litres: 0, amount: 0, entries: 0, morningLitres: 0, eveningLitres: 0
+    });
+    c.litres += s.litres; c.amount += s.amount; c.entries++;
+    if (s.shift === 'Morning') c.morningLitres += s.litres; else c.eveningLitres += s.litres;
+
+    var d = perDay[s.date] || (perDay[s.date] = { date: s.date, litres: 0, amount: 0, morningLitres: 0, eveningLitres: 0 });
+    d.soldLitres = (d.soldLitres || 0) + s.litres;
+    d.soldAmount = (d.soldAmount || 0) + s.amount;
+  });
+
+  var customers = Object.keys(perCustomer).map(function (k) {
+    var c = perCustomer[k];
+    c.litres = round(c.litres, 2); c.amount = round(c.amount, 2);
+    c.morningLitres = round(c.morningLitres, 2); c.eveningLitres = round(c.eveningLitres, 2);
+    c.outstanding = customerBalance(c.customerId, filter.to || null);
+    return c;
+  }).sort(function (a, b) { return b.litres - a.litres; });
+
   var days = Object.keys(perDay).sort().map(function (k) {
     var d = perDay[k];
     d.litres = round(d.litres, 2); d.amount = round(d.amount, 2);
     d.morningLitres = round(d.morningLitres, 2); d.eveningLitres = round(d.eveningLitres, 2);
+    d.soldLitres = round(d.soldLitres || 0, 2); d.soldAmount = round(d.soldAmount || 0, 2);
     return d;
   });
 
@@ -784,7 +1124,21 @@ function apiReportSummary(filter) {
       suppliers: suppliers.length,
       averageRate: totals.litres ? round(totals.amount / totals.litres, 2) : 0
     },
+    saleTotals: {
+      litres: round(saleTotals.litres, 2),
+      amount: round(saleTotals.amount, 2),
+      entries: saleTotals.entries,
+      morningLitres: round(saleTotals.morningLitres, 2),
+      eveningLitres: round(saleTotals.eveningLitres, 2),
+      customers: customers.length,
+      averageRate: saleTotals.litres ? round(saleTotals.amount / saleTotals.litres, 2) : 0
+    },
+    margin: {
+      litres: round(saleTotals.litres - totals.litres, 2),
+      amount: round(saleTotals.amount - totals.amount, 2)
+    },
     suppliers: suppliers,
+    customers: customers,
     days: days
   };
 }
@@ -795,16 +1149,31 @@ function apiBootstrap() {
   var collections = readCollections();
   var advances = readAdvances();
   var payments = readPayments();
+  var customers = readCustomers();
+  var sales = readSales();
+  var receipts = readReceipts();
 
   var todayIso = today();
   var since = shiftDate(todayIso, -29);
 
   var recentDays = {};
+  function dayBucket(date) {
+    return recentDays[date] || (recentDays[date] = {
+      date: date, litres: 0, amount: 0, morningLitres: 0, eveningLitres: 0,
+      soldLitres: 0, soldAmount: 0, soldMorningLitres: 0, soldEveningLitres: 0
+    });
+  }
   collections.forEach(function (c) {
     if (c.date < since || c.date > todayIso) return;
-    var d = recentDays[c.date] || (recentDays[c.date] = { date: c.date, litres: 0, amount: 0, morningLitres: 0, eveningLitres: 0 });
+    var d = dayBucket(c.date);
     d.litres += c.litres; d.amount += c.amount;
     if (c.shift === 'Morning') d.morningLitres += c.litres; else d.eveningLitres += c.litres;
+  });
+  sales.forEach(function (s) {
+    if (s.date < since || s.date > todayIso) return;
+    var d = dayBucket(s.date);
+    d.soldLitres += s.litres; d.soldAmount += s.amount;
+    if (s.shift === 'Morning') d.soldMorningLitres += s.litres; else d.soldEveningLitres += s.litres;
   });
 
   var balances = {};
@@ -813,20 +1182,31 @@ function apiBootstrap() {
   });
   Object.keys(balances).forEach(function (k) { balances[k] = round(balances[k], 2); });
 
+  var owed = {};
+  sales.forEach(function (s) { owed[s.customerId] = (owed[s.customerId] || 0) + s.amount; });
+  receipts.forEach(function (r) { owed[r.customerId] = (owed[r.customerId] || 0) - r.amount; });
+  Object.keys(owed).forEach(function (k) { owed[k] = round(owed[k], 2); });
+
   return {
     settings: settings,
     serverDate: todayIso,
     serverTime: nowIso(),
     timezone: tz(),
     suppliers: suppliers,
+    customers: customers,
     collections: collections.sort(byDateDesc).slice(0, 400),
+    sales: sales.sort(byDateDesc).slice(0, 400),
     advances: advances.sort(byDateDesc).slice(0, 200),
     payments: payments.sort(byDateDesc).slice(0, 200),
+    receipts: receipts.sort(byDateDesc).slice(0, 200),
     advanceBalances: balances,
+    customerBalances: owed,
     recentDays: Object.keys(recentDays).sort().map(function (k) {
       var d = recentDays[k];
       d.litres = round(d.litres, 2); d.amount = round(d.amount, 2);
       d.morningLitres = round(d.morningLitres, 2); d.eveningLitres = round(d.eveningLitres, 2);
+      d.soldLitres = round(d.soldLitres, 2); d.soldAmount = round(d.soldAmount, 2);
+      d.soldMorningLitres = round(d.soldMorningLitres, 2); d.soldEveningLitres = round(d.soldEveningLitres, 2);
       return d;
     })
   };
@@ -866,10 +1246,18 @@ function setup() {
   textColumn(SHEET.suppliers, 'supplier_id');
   textColumn(SHEET.collections, 'supplier_id');
 
+  textColumn(SHEET.sales, 'date');
+  textColumn(SHEET.receipts, 'date');
+  textColumn(SHEET.customers, 'customer_id');
+  textColumn(SHEET.sales, 'customer_id');
+
   dropdown(SHEET.collections, 'shift', SHIFTS);
+  dropdown(SHEET.sales, 'shift', SHIFTS);
   dropdown(SHEET.advances, 'type', ADVANCE_TYPES);
   dropdown(SHEET.payments, 'mode', PAYMENT_MODES);
+  dropdown(SHEET.receipts, 'mode', PAYMENT_MODES);
   dropdown(SHEET.suppliers, 'status', ['Active', 'Inactive']);
+  dropdown(SHEET.customers, 'status', ['Active', 'Inactive']);
 
   var settingsSheet = ss.getSheetByName(SHEET.settings);
   if (settingsSheet.getLastRow() < 2) {
@@ -904,21 +1292,31 @@ function dropdown(sheetName, columnName, values) {
   sh.getRange(2, col, Math.max(sh.getMaxRows() - 1, 1), 1).setDataValidation(rule);
 }
 
-/** Adds a handful of suppliers and a week of entries so the dashboard is not empty. */
+/** Adds a few suppliers and customers plus a week of entries on both sides. */
 function loadSampleData() {
-  var samples = [
+  var suppliers = [
     ['S001', 'Ravi Kumar', '9876543210', 'Perambakkam', 34],
     ['S002', 'Lakshmi Devi', '9876500011', 'Perambakkam', 34],
     ['S003', 'Murugan S', '9800011122', 'Thiruvallur', 32],
     ['S004', 'Anitha R', '9790011223', 'Thiruvallur', 33]
   ];
-  samples.forEach(function (s) {
+  suppliers.forEach(function (s) {
     apiSaveSupplier({ supplierId: s[0], name: s[1], mobile: s[2], village: s[3], ratePerLitre: s[4], status: 'Active' });
   });
+
+  var customers = [
+    ['C001', 'Sri Balaji Tea Stall', '9840011223', 'Bus stand road', 42],
+    ['C002', 'Amman Sweets', '9840033445', 'Market street', 44],
+    ['C003', 'Kavitha (household)', '9840055667', 'Gandhi nagar', 46]
+  ];
+  customers.forEach(function (c) {
+    apiSaveCustomer({ customerId: c[0], name: c[1], mobile: c[2], address: c[3], ratePerLitre: c[4], status: 'Active' });
+  });
+
   var base = today();
   for (var d = 6; d >= 0; d--) {
     var date = shiftDate(base, -d);
-    samples.forEach(function (s, i) {
+    suppliers.forEach(function (s, i) {
       SHIFTS.forEach(function (shift, k) {
         var litres = round(4 + ((i + k + d) % 5) + Math.random() * 2, 1);
         try {
@@ -926,7 +1324,17 @@ function loadSampleData() {
         } catch (err) { /* duplicate on re-run — fine */ }
       });
     });
+    customers.forEach(function (c, i) {
+      SHIFTS.forEach(function (shift, k) {
+        var litres = round(5 + ((i + k + d) % 4) + Math.random() * 2, 1);
+        try {
+          apiSaveSale({ date: date, customerId: c[0], shift: shift, litres: litres, ratePerLitre: c[4] });
+        } catch (err) { /* duplicate on re-run — fine */ }
+      });
+    });
   }
+
   try { apiSaveAdvance({ date: shiftDate(base, -5), supplierId: 'S001', type: 'Given', amount: 2000, note: 'Festival advance' }); } catch (err) {}
-  return 'Sample data loaded.';
+  try { apiSaveReceipt({ date: shiftDate(base, -3), customerId: 'C001', amount: 1500, mode: 'Cash', note: 'Part payment' }); } catch (err) {}
+  return 'Sample data loaded on both sides.';
 }
