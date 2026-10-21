@@ -1,7 +1,9 @@
 # Setting it up
 
-About fifteen minutes, once. You need a Google account and, for the last part, a
-GitHub account.
+About fifteen minutes, once. You need a Google account and a GitHub account.
+
+> **Already using the first version?** You only need the short
+> [upgrade steps in the README](../README.md#upgrading-from-the-first-version).
 
 ---
 
@@ -10,223 +12,176 @@ GitHub account.
 1. Go to <https://sheets.new> and name the spreadsheet — *Dakotax Milk Register*
    is a fine name.
 2. **File → Settings → Time zone.** Set it to your local zone (India:
-   *(GMT+05:30) India Standard Time*). The script stamps every record from this,
-   so getting it right now saves confusion later.
+   *(GMT+05:30) India Standard Time*). Dates and the morning / evening round
+   are worked out from it.
 
 ## 2. Add the script
 
 1. **Extensions → Apps Script.** A new tab opens with an empty `Code.gs`.
 2. Select everything in the editor and replace it with the contents of
-   [`apps-script/Code.gs`](../apps-script/Code.gs) from this repository.
-3. Optional but tidy: click the gear (**Project Settings**) and tick *Show
-   "appsscript.json" manifest file in editor*, then paste in
+   [`apps-script/Code.gs`](../apps-script/Code.gs).
+3. Optional: click the gear (**Project Settings**), tick *Show
+   "appsscript.json" manifest file in editor*, and paste in
    [`apps-script/appsscript.json`](../apps-script/appsscript.json). It sets the
-   timezone and the web-app access up front.
+   time zone and keeps the script's permission to this one sheet.
 4. Save (**Ctrl/Cmd + S**).
 
 ## 3. Build the tabs
 
-1. In the function dropdown at the top of the editor, choose **setup**.
+1. In the function list at the top of the editor, choose **setup**.
 2. Click **Run**.
-3. Google asks for permission the first time. This is the step that stops most
-   people, so here it is click by click:
+3. Google asks for permission the first time:
 
-   1. A dialog appears: **Authorization required — this project requires your
-      permission to access your data.** Choose **Review permissions**.
-   2. A window opens listing your Google accounts. Pick the one that owns the
-      spreadsheet.
-   3. You land on **Google hasn't verified this app**. Click **Advanced** at the
-      bottom left, then **Go to *(your project name)* (unsafe)**.
+   1. **Authorization required** → **Review permissions**.
+   2. Pick the Google account that owns the spreadsheet.
+   3. On **Google hasn't verified this app**, click **Advanced**, then
+      **Go to *(your project name)* (unsafe)**. Google shows this for every
+      script written for one's own sheet; the code you are approving is the
+      `Code.gs` in front of you.
+   4. The script asks to see and edit **only the spreadsheet it is attached
+      to**. Click **Allow**.
 
-      Nothing is unsafe here. Google shows that screen for every script it has
-      not put through its review programme, which includes every script anyone
-      writes for their own sheet. The code you are approving is the `Code.gs`
-      sitting in the editor in front of you.
-   4. The consent screen lists what the script wants: **See, edit, create and
-      delete only the specific Google Drive files you use with this app.** That
-      is the sheet this script is attached to, and nothing else in your Drive.
-      Click **Allow**.
+   You do this once, as the owner. Workers are never asked, because the web app
+   runs as you (step 5).
 
-   You do this once, as the owner. Because the web app is deployed with
-   **Execute as: Me** (step 5), no worker is ever asked to authorise anything.
+4. The sheet now has eight tabs — **Suppliers**, **Collections**, **Advances**,
+   **Payments**, **Customers**, **Sales**, **Receipts**, **Settings** — with
+   headers, frozen top rows and dropdowns.
 
-4. Back on the sheet you now have eight tabs — **Suppliers**, **Collections**,
-   **Advances**, **Payments** on the buy side; **Customers**, **Sales**,
-   **Receipts** on the sell side; and **Settings** — with headers frozen and
-   dropdowns on the status, shift, type and mode columns.
+Want to try it first? Run **loadSampleData** once: four suppliers, three
+customers and a week of entries. Delete those rows before real use.
 
-Want something on the dashboard before you start? Run **loadSampleData** once —
-four suppliers, three customers and a week of entries on both sides. Delete
-those rows when you are done.
+Running `setup` again later is safe: it adds missing columns, removes columns
+that are completely empty, and never touches your rows.
 
 ## 4. Check the settings
 
-Open the **Settings** tab and adjust the values in column B:
+Open the **Settings** tab (or later, the app's Settings page):
 
 | Key | Set it to |
 |---|---|
-| `business_name` | What should appear in the app header |
+| `business_name` | The name to show on Home |
 | `currency` | `INR`, `USD`, `EUR` or `GBP` |
 | `default_rate` | What you normally pay a supplier per litre |
 | `default_sale_rate` | What you normally charge a customer per litre |
-| `shift_cutover_hour` | The hour Evening begins, `0`–`23`. `12` means noon |
+| `shift_cutover_hour` | The hour the evening round begins, `0`–`23` (`12` = noon) |
 | `allow_future_dates` | `no`, unless you really want ahead-dated entries |
-| `max_litres_per_entry` | A little above your largest realistic delivery |
-
-You can also change all of these later from the app's Settings page.
+| `max_litres_per_entry` | A little above your largest real delivery |
 
 ## 5. Deploy the web app
 
 1. In the Apps Script editor: **Deploy → New deployment**.
 2. Click the gear beside *Select type* and choose **Web app**.
 3. Fill in:
-   - **Description** — `v1`
-   - **Execute as** — **Me**. The script runs with your access to the sheet, so
-     workers never need access to the sheet itself.
-   - **Who has access** — **Anyone**. This is what lets workers use it with no
-     login. (If your Google Workspace hides this option, the closest is *Anyone
-     within your organisation*, and each worker will have to sign in.)
-4. **Deploy**, approve if asked, and copy the **Web app URL**. It looks like:
+   - **Execute as** — **Me**.
+   - **Who has access** — **Anyone**. Workers then need no login.
+4. **Deploy**, approve if asked, and copy the **Web app URL**:
 
    ```
    https://script.google.com/macros/s/AKfycb…long…/exec
    ```
 
-   Keep this link. It is both the address and the password.
-
-> **Changed `Code.gs` later?** Use **Deploy → Manage deployments → edit (pencil)
-> → Version: New version → Deploy.** That keeps the same URL. Creating a *new
-> deployment* gives you a different URL and every device would need re-pasting.
+> **Changed `Code.gs` later?** Use **Deploy → Manage deployments → pencil (Edit)
+> → Version: New version → Deploy.** That keeps the same link. A *new
+> deployment* would give a different link.
 
 ## 6. Put the link into the site
 
-Open `assets/js/config.local.js` and set your own `/exec` URL:
+Open `assets/js/config.local.js` and set your `/exec` link:
 
 ```js
 window.DAKOTAX_API_URL = 'https://script.google.com/macros/s/AKfycb…/exec';
 ```
 
-That is the whole connection step. Every device that opens the site is connected
-the moment the page loads — no key to paste on a new phone, and a reinstalled
-browser or a different computer just works.
-
-Then open the app either way:
-
-- **Locally.** Download this repository and double-click `index.html`.
-- **On the web.** Publish it with GitHub Pages — step 7.
-
-If you ever need one device pointed at a different sheet (a test copy, say), set
-it from **Settings → Sheet connection** on that device. **Disconnect** puts it
-back on the link built into the site.
-
-> Because the link is in the page source, anyone who can open the site can read
-> it. That is the same exposure as sharing the site address itself, which is the
-> trade-off of a deployment with access set to *Anyone*. If the link leaks,
-> create a **new deployment** (which issues a fresh URL), put that URL in
-> `config.local.js`, and publish again.
+Every phone that opens the site is then connected straight away — nothing to
+paste. One device can still be pointed at another sheet (a test copy) from
+**Settings → Sheet link**; **Disconnect** puts it back.
 
 ## 7. Publish with GitHub Pages
 
-```bash
-git init
-git add .
-git commit -m "Dakotax milk collection"
-git branch -M main
-git remote add origin https://github.com/<you>/<repo>.git
-git push -u origin main
-```
+1. Create a repository on github.com and upload the files (**Add file → Upload
+   files**, drag in everything, **Commit changes**).
+2. **Settings → Pages → Build and deployment → Source: Deploy from a branch →
+   `main` / `(root)` → Save.**
+3. After a minute the address appears on that page, like
+   `https://<you>.github.io/<repo>/`. Open it on each phone.
 
-In the repository on GitHub: **Settings → Pages → Build and deployment →
-Source: GitHub Actions**. The workflow in `.github/workflows/deploy-pages.yml`
-runs on each push to `main`; open the **Actions** tab to watch it and to get the
-published address.
+On a phone, **Add to Home screen** from the browser menu gives the app its own
+icon.
 
-The site is static, so it is free, fast, and there is nothing to keep running.
+---
 
-## 8. Day-to-day
+## Day to day
 
-**Milk coming in**
+**Milk in (from suppliers)**
 
-1. Open the app. It already knows the date and which round it is.
-2. **Daily entry**, with the switch on **Milk in** → type part of the supplier's
-   name, ID or mobile number → litres → **Save entry**.
-3. Everything saved in that round is listed underneath, with the running total,
-   so you can check it against the cans before the tanker leaves.
+1. Open **Milk In** (green). The date and the round are already set from the
+   clock — change them only when catching up on an old round.
+2. Tap **Supplier**, type the number (`125`) or part of the name, press
+   **Go** / **Enter**. The litres box is ready.
+3. Type the litres → **Save**. The entry appears in the list below at once and
+   is sent in the background.
+4. **Not recorded yet** lists who is still to come this round. At a big centre,
+   tap **See all … not recorded** to go through them by village or number.
 
-**Milk going out**
-
-4. Same page, switch to **Milk out** → pick the customer → litres →
-   **Save delivery**. The rate comes from the customer's own selling rate.
+**Milk out (to customers)** — the same on **Milk Out** (blue). The rate comes
+from the customer's own rate.
 
 **Money**
 
-5. **Advances** when you hand a supplier money ahead of their bill.
-6. **Money → Pay a supplier** at the end of the period: pick the supplier and
-   the dates, **Calculate from the register**, check the numbers, record it.
-7. **Money → Collect from a customer** when they pay. The amount is pre-filled
-   with everything they owe; change it for a part payment. Paying more than they
-   owe is fine — the extra shows as credit.
-8. **Reports** for a period summary on either side, or **Both sides** for the
-   margin, plus CSV exports for the accountant.
+- **Pay supplier** at the end of a period: choose the supplier and the dates
+  (the last 10-day cycle is already chosen), check the sum, take back advance if
+  you want, **Record payment**.
+- **Collect money** when a customer pays. What they owe is filled in; change it
+  for a part payment. Paying more than they owe shows as credit.
+- **Advances** when you hand a supplier money ahead of their bill, or take it
+  back.
+- **Reports** for totals over any dates, and files for the accountant.
 
-## 9. Appearance
-
-The app follows whatever the phone or computer is set to. The round button in
-the header cycles **match my system → always light → always dark**, and the same
-choice is in **Settings → Appearance**. It is remembered on that device only, so
-the clerk's phone and the office computer can differ.
+**The top bar** shows the saving state: *Saved*, *Sending…*, *Offline · 3
+waiting*, or *2 not saved* — tap it to see the list. The round **த** / **EN**
+button beside it switches between Tamil and English.
 
 ---
 
 ## When something goes wrong
 
+**The top bar says "Offline · n waiting".**
+There is no signal. Keep working: the entries are kept on the phone and sent by
+themselves when the signal returns. Do not clear the browser's data while
+entries are waiting.
+
+**An entry is marked "Not saved".**
+The sheet refused it — usually because the same person already has an entry for
+that round (perhaps from another phone). Tap it: **Fix and save again**, **Try
+again as it is**, or **Remove this entry**.
+
+**Settings says "The sheet script is out of date".**
+The site is new but the script is old. Saving still works; paste the new
+`Code.gs` and deploy a new version (step 5 note) for faster saves.
+
+**Home says "The sheet file is 80% full".**
+Google allows 10 million cells per file. Run `setup` once (it removes empty
+columns), then plan to move old months to a separate file — see *Sheet space* in
+the [README](../README.md#sheet-space--please-read-at-a-big-centre). Do not delete
+old Sales rows by hand: what customers owe is counted from them.
+
 **The page says "The Web App requires you to authorize access to your data."**
+The deployment runs as the visitor instead of you. **Deploy → Manage
+deployments → Edit** → **Execute as: Me**, **Who has access: Anyone** →
+**Version: New version → Deploy**. The link stays the same.
 
-The deployment is running as *whoever opens it* rather than as you, so Google
-asks each visitor for their own permission — and an anonymous worker has no way
-to give it. Fix the deployment rather than clicking through the prompt:
+**"No answer from the sheet" / "The sheet link is not working".**
+Check that access is *Anyone* and that the link ends in `/exec` (a `/dev` link
+only works for the owner).
 
-1. Apps Script editor → **Deploy → Manage deployments**.
-2. Click the pencil (**Edit**) on the active deployment.
-3. Set **Execute as** to **Me (your@email)** and **Who has access** to
-   **Anyone**.
-4. Set **Version** to **New version**, then **Deploy**.
+**"A sheet tab is missing".**
+A tab was renamed or deleted. Run `setup` again — it rebuilds what is missing
+and leaves existing rows alone.
 
-The URL stays the same, so nothing needs re-pasting. Reload the app and the
-prompt is gone.
+**Entries save but Home shows nothing for today.**
+Check the sheet's time zone (step 1). If the sheet thinks it is another day,
+today's entries land on that day.
 
-Two related cases:
-
-- **You see it as the owner, in the editor, when you first run `setup`.** That
-  one is expected — work through step 3 above and it never comes back.
-- **Your Google Workspace has no "Anyone" option**, only *Anyone within
-  (organisation)*. Then every worker must be signed in to a work account, and
-  each one authorises once on their first visit. If that is not workable, ask
-  your Workspace admin to allow the app, or run the sheet from a personal
-  Google account instead.
-
-**"The web-app link could not be reached."**
-Access is probably not set to *Anyone*. Open **Deploy → Manage deployments**,
-edit the deployment, and check. Also confirm the link ends in `/exec` and not
-`/dev` — a `/dev` link only works while you are signed in as the owner.
-
-**"The link did not return app data."**
-Usually a `/dev` URL, or a deployment made before `Code.gs` was pasted in.
-Re-deploy with **New version**.
-
-**"The sheet 'Collections' is missing."**
-`setup` has not been run on this spreadsheet, or a tab was renamed. Run `setup`
-again — it leaves existing rows alone.
-
-**Entries save but the dashboard is empty.**
-Check the sheet's timezone (step 1). If the sheet thinks it is a different day
-from the phone, today's entries land on yesterday.
-
-**A duplicate warning you disagree with.**
-The rule is one entry per supplier, per date, per shift. If a supplier really
-delivered twice in one round, add the second lot to the existing entry rather
-than creating a new row — the message names the entry so you can find it.
-
-**Two people saving at the same time.**
-Handled: writes are serialised. If the second one waits too long it is told to
-try again rather than being silently dropped.
+**An old version still shows on a phone.**
+Pull down to refresh, or close the tab and open the site again.

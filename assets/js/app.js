@@ -1,174 +1,374 @@
-/* Shell: navigation, hash routing, the clock, and first-run setup. */
+/* The shell: navigation, routing, the sync pill, language and appearance.
+ *
+ * Every page draw gets a "ticket". When you move to another page the old
+ * ticket is torn up, so anything the old page was still waiting for can never
+ * draw itself over the new one. (That was the "tap Home, see the entry form"
+ * bug.) Sub-views such as Suppliers/Customers live in the address, so the
+ * page you tap is always the page you get.
+ */
 window.DX = window.DX || {};
 
-/* ---------------------------------------------------------------------- *
- * Theme: follow the operating system by default, or let this device pin
- * light or dark. The choice is stamped on <html> as data-theme; app.css
- * defines the dark tokens under both the media query and that attribute,
- * so the manual choice wins in either direction.
- * ---------------------------------------------------------------------- */
 DX.theme = (function () {
   var KEY = 'dakotax.theme';
   var VALUES = ['system', 'light', 'dark'];
 
   function get() {
-    try {
-      var stored = localStorage.getItem(KEY);
-      return VALUES.indexOf(stored) > -1 ? stored : 'system';
-    } catch (err) { return 'system'; }
+    var stored = DX.util.storageGet(KEY);
+    return VALUES.indexOf(stored) > -1 ? stored : 'system';
   }
 
   function apply(choice) {
     if (choice === 'system') document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', choice);
+    var dark = choice === 'dark' || (choice === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', dark ? '#0f1720' : '#0b6b5f');
   }
 
   function set(choice) {
     if (VALUES.indexOf(choice) < 0) choice = 'system';
-    try { localStorage.setItem(KEY, choice); } catch (err) { /* private mode */ }
+    DX.util.storageSet(KEY, choice);
     apply(choice);
     return choice;
   }
 
-  /** What the viewer is actually looking at right now. */
-  function resolved() {
-    var choice = get();
-    if (choice !== 'system') return choice;
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-
-  function label(choice) {
-    return { system: 'Match my system', light: 'Always light', dark: 'Always dark' }[choice || get()];
-  }
-
-  function next() { return set(VALUES[(VALUES.indexOf(get()) + 1) % VALUES.length]); }
-
-  return { get: get, set: set, apply: apply, resolved: resolved, label: label, next: next, values: VALUES };
+  return { get: get, set: set, apply: apply, values: VALUES };
 })();
 
 DX.app = (function () {
-  var util = DX.util, ui = DX.ui, store = DX.store;
-
-  var ICONS = {
-    dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
-    entry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8l-1 3H9L8 3z"/><path d="M7 6h10l1.2 13a2 2 0 0 1-2 2.2H7.8a2 2 0 0 1-2-2.2L7 6z"/><path d="M9 13h6"/></svg>',
-    people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16.5 6.2a3 3 0 0 1 0 5.6"/><path d="M18 20a5.6 5.6 0 0 0-2.2-4.5"/></svg>',
-    advances: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/></svg>',
-    money: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8V6.5A1.5 1.5 0 0 0 18.5 5H5a2 2 0 0 0 0 4h14a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 19 19H5a2 2 0 0 1-2-2V7"/><circle cx="16.5" cy="14" r="1.3"/></svg>',
-    reports: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7.5" y="12" width="3" height="5" rx="1"/><rect x="13" y="8" width="3" height="9" rx="1"/><rect x="18" y="14" width="2.5" height="3" rx="1"/></svg>',
-    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.5 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 15H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.5l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.6V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>'
-  };
+  var util = DX.util, ui = DX.ui, store = DX.store, el = util.el;
+  function t(s, v) { return DX.i18n.t(s, v); }
 
   var ROUTES = [
-    { path: 'dashboard', label: 'Dashboard', short: 'Home', page: 'dashboard' },
-    { path: 'entry', label: 'Daily entry', short: 'Entry', page: 'entry' },
-    { path: 'people', label: 'People', short: 'People', page: 'people' },
-    { path: 'advances', label: 'Advances', short: 'Advances', page: 'advances' },
-    { path: 'money', label: 'Money', short: 'Money', page: 'money' },
-    { path: 'reports', label: 'Reports', short: 'Reports', page: 'reports' }
+    { path: 'home', page: 'home', icon: 'home', label: 'Home', tab: true },
+    { path: 'in', page: 'milkin', icon: 'in', label: 'Milk In', tab: true, tone: 'in', tabTa: 'வரவு' },
+    { path: 'out', page: 'milkout', icon: 'out', label: 'Milk Out', tab: true, tone: 'out', tabTa: 'விற்பனை' },
+    { path: 'people', page: 'people', icon: 'people', label: 'People', tab: true },
+    { path: 'pay', page: 'pay', icon: 'pay', label: 'Pay supplier', more: true, desc: 'Settle a supplier’s milk bill' },
+    { path: 'collect', page: 'collect', icon: 'collect', label: 'Collect money', more: true, desc: 'Money received from a customer' },
+    { path: 'advances', page: 'advances', icon: 'advance', label: 'Advances', more: true, desc: 'Money given to a supplier before the bill' },
+    { path: 'reports', page: 'reports', icon: 'reports', label: 'Reports', more: true, desc: 'Totals for any dates, and CSV files' },
+    { path: 'settings', page: 'settings', icon: 'settings', label: 'Settings', more: true, desc: 'Rates, language, appearance, sheet link' }
   ];
 
-  /* Links kept working after the pages were merged. */
-  var ALIASES = { collection: 'entry', suppliers: 'people', customers: 'people', payments: 'money' };
-
-  var THEME_ICONS = {
-    system: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 20h8"/><path d="M12 17v3"/></svg>',
-    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-    dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z"/></svg>'
+  /* Old links keep working. */
+  var ALIASES = {
+    '': 'home', dashboard: 'home', entry: 'in', collection: 'in', 'entry/in': 'in', 'entry/out': 'out', sales: 'out',
+    suppliers: 'people/suppliers', customers: 'people/customers',
+    money: 'pay', payments: 'pay', 'money/pay': 'pay', 'money/collect': 'collect', receipts: 'collect'
   };
 
-  var view, titleNode, subtitleNode, clockNode, navNodes = [];
+  var SYNC_ON_VISIT = { home: 1, people: 1, pay: 1, collect: 1, advances: 1, reports: 1 };
 
-  function currentPath() {
-    var hash = (location.hash || '').replace(/^#\/?/, '').split('?')[0];
-    if (ALIASES[hash]) hash = ALIASES[hash];
-    return ROUTES.concat([{ path: 'settings' }]).some(function (r) { return r.path === hash; }) ? hash : 'dashboard';
+  var view, titleNode, subNode, pillNode, langNode, railNode, tabNode;
+  var current = { token: 0, ctx: null, path: null };
+
+  function routeFor(path) {
+    for (var i = 0; i < ROUTES.length; i++) if (ROUTES[i].path === path) return ROUTES[i];
+    return null;
   }
 
-  function pageFor(path) {
-    return DX.pages[path === 'settings' ? 'settings' : (ROUTES.filter(function (r) { return r.path === path; })[0] || {}).page];
+  function parseHash() {
+    var raw = (location.hash || '').replace(/^#\/?/, '').split('?')[0].replace(/\/+$/, '');
+    if (Object.prototype.hasOwnProperty.call(ALIASES, raw)) raw = ALIASES[raw];
+    var parts = raw.split('/');
+    var route = routeFor(parts[0]);
+    if (!route) return { route: routeFor('home'), sub: '', unknown: !!raw };
+    return { route: route, sub: parts.slice(1).join('/') };
   }
 
-  function buildNav() {
-    var nav = document.getElementById('nav');
-    var tabs = document.getElementById('tabbar');
-    util.clear(nav); util.clear(tabs);
-    navNodes = [];
+  /** Go to a page. Works even when you are already on it. */
+  function go(path) {
+    var target = '#/' + path;
+    if (location.hash === target) renderRoute();
+    else location.hash = target;
+  }
 
-    ROUTES.concat([{ path: 'settings', label: 'Settings', short: 'Setup' }]).forEach(function (route) {
-      var link = util.el('a', { href: '#/' + route.path }, [
-        util.el('span', { html: ICONS[route.path] }),
-        route.label
-      ]);
-      link.dataset.path = route.path;
-      nav.appendChild(link);
-      navNodes.push(link);
+  /* ------------------------------------------------------------------ *
+   * Shell
+   * ------------------------------------------------------------------ */
+  function navLink(route, compact) {
+    // Tamil words are long; the bottom tabs use the short form next to the icon.
+    var label = compact && route.tabTa && DX.i18n.get() === 'ta' ? route.tabTa : t(route.label);
+    var a = el('a.nav__link' + (route.tone ? '.tone-' + route.tone : ''), { href: '#/' + route.path, 'aria-label': t(route.label) }, [
+      el('span.nav__icon', ui.icon(route.icon)),
+      el('span.nav__label', { text: label })
+    ]);
+    a.dataset.path = route.path;
+    if (compact) a.classList.add('tab');
+    return a;
+  }
 
-      var tab = util.el('a', { href: '#/' + route.path, 'aria-label': route.label }, [
-        util.el('span', { html: ICONS[route.path] }),
-        route.short
-      ]);
-      tab.dataset.path = route.path;
-      tabs.appendChild(tab);
-      navNodes.push(tab);
+  function buildShell() {
+    util.clear(railNode);
+    railNode.appendChild(el('div.brand', [
+      el('span.brand__mark', { 'aria-hidden': 'true' }, ui.icon('in')),
+      el('span.brand__text', [el('b#brand-name', { text: store.businessName() }), el('small', { text: t('Milk register') })])
+    ]));
+    railNode.appendChild(el('nav.rail__nav', { 'aria-label': t('Pages') }, ROUTES.map(function (r) { return navLink(r); })));
+
+    util.clear(tabNode);
+    ROUTES.filter(function (r) { return r.tab; }).forEach(function (r) { tabNode.appendChild(navLink(r, true)); });
+    var moreBtn = el('button.nav__link.tab.tab--more', { type: 'button', onclick: openMore, 'aria-haspopup': 'dialog' }, [
+      el('span.nav__icon', ui.icon('grid')),
+      el('span.nav__label', { text: t('More') })
+    ]);
+    moreBtn.dataset.path = 'more';
+    tabNode.appendChild(moreBtn);
+
+    paintLang();
+    paintPill();
+  }
+
+  function paintNav(route) {
+    document.querySelectorAll('.nav__link').forEach(function (node) {
+      var on = node.dataset.path === route.path || (node.dataset.path === 'more' && route.more);
+      if (on) node.setAttribute('aria-current', 'page'); else node.removeAttribute('aria-current');
+    });
+    document.body.dataset.route = route.path;
+  }
+
+  function paintTitle(route, ctx) {
+    var page = DX.pages[route.page];
+    var title = page && page.title ? page.title(ctx) : t(route.label);
+    var sub = page && page.subtitle ? page.subtitle(ctx) : '';
+    titleNode.textContent = title;
+    subNode.textContent = sub || '';
+    subNode.hidden = !sub;
+    document.title = title + ' · ' + store.businessName();
+  }
+
+  function paintLang() {
+    var ta = DX.i18n.get() === 'ta';
+    util.clear(langNode);
+    langNode.appendChild(el('span', { text: ta ? 'EN' : 'த' }));
+    langNode.setAttribute('aria-label', ta ? 'Switch to English' : 'தமிழுக்கு மாற்று');
+    langNode.title = ta ? 'English' : 'தமிழ்';
+  }
+
+  function setLanguage(lang) {
+    DX.i18n.set(lang);
+    buildShell();
+    renderRoute({ keepScroll: true });
+    ui.say.ok(lang === 'ta' ? 'தமிழ்' : 'English', lang === 'ta' ? 'திரை தமிழில் காட்டப்படுகிறது.' : 'Screens are now in English.');
+  }
+
+  function paintPill() {
+    if (!pillNode) return;
+    var s = store.status();
+    var tone, glyph, text, spin = false;
+    if (s.failed) { tone = 'error'; glyph = 'alert'; text = t('{n} not saved', { n: s.failed }); }
+    else if (s.pending && s.offline) { tone = 'warn'; glyph = 'cloudOff'; text = t('Offline · {n} waiting', { n: s.pending }); }
+    else if (s.pending) { tone = 'busy'; spin = true; text = t('Sending {n}…', { n: s.pending }); }
+    else if (s.syncing) { tone = 'busy'; spin = true; text = t('Updating…'); }
+    else if (s.syncError) { tone = 'warn'; glyph = 'cloudOff'; text = t('Offline'); }
+    else if (s.lastSync) { tone = 'ok'; glyph = 'check'; text = t('Saved'); }
+    else { tone = 'busy'; spin = true; text = t('Loading…'); }
+    util.clear(pillNode);
+    pillNode.className = 'pill pill--' + tone;
+    pillNode.appendChild(spin ? el('span.spinner', { 'aria-hidden': 'true' }) : ui.icon(glyph));
+    pillNode.appendChild(el('span.pill__text', { text: text }));
+    var when = s.lastSync ? t('Last updated {time}', { time: util.clockLabel(new Date(s.lastSync)) }) : '';
+    pillNode.title = [text, when].filter(Boolean).join(' · ');
+    pillNode.setAttribute('aria-label', pillNode.title);
+  }
+
+  function onPill() {
+    var s = store.status();
+    if (s.failed || s.pending) { openQueue(); return; }
+    store.sync().then(function (ok) {
+      if (ok) ui.say.ok(t('Up to date'), t('Read fresh from the sheet.'));
+      else ui.reportError(store.status().syncError);
     });
   }
 
-  function markActive(path) {
-    navNodes.forEach(function (node) {
-      if (node.dataset.path === path) node.setAttribute('aria-current', 'page');
-      else node.removeAttribute('aria-current');
+  /** The list of saves still on this phone: waiting, or refused by the sheet. */
+  function openQueue() {
+    var items = store.queue();
+    var body = el('div.queue');
+    function describe(item) {
+      var spec = store.spec(item.kind);
+      var d = item.data || item.prev || {};
+      var who = '';
+      if (spec.person) who = d.name || item.ref;
+      else {
+        var p = store.person(spec.partyList === 'customers' ? 'customer' : 'supplier', d[spec.party]);
+        who = p ? p.name : (d[spec.partyName] || d[spec.party] || '');
+      }
+      var what = {
+        collection: t('Milk In'), sale: t('Milk Out'), advance: t('Advance'), payment: t('Payment'),
+        receipt: t('Money received'), supplier: t('Supplier'), customer: t('Customer')
+      }[item.kind];
+      var verb = item.op === 'delete' ? t('Delete') : item.op === 'status' ? t('Status') : (item.isNew ? t('New') : t('Change'));
+      var bits = [];
+      if (d.date) bits.push(util.fmtDate(d.date, 'short'));
+      if (d.shift) bits.push(t(d.shift));
+      if (d.litres) bits.push(util.fmtLitres(d.litres));
+      if (d.amount) bits.push(store.money(d.amount));
+      return { title: what + ' · ' + who, sub: verb + (bits.length ? ' · ' + bits.join(' · ') : '') };
+    }
+    function draw() {
+      util.clear(body);
+      items = store.queue();
+      if (!items.length) { body.appendChild(ui.empty(t('Everything is saved'), t('Nothing is waiting on this phone.'), null, 'check')); return; }
+      items.forEach(function (item) {
+        var info = describe(item);
+        var failed = item.status === 'failed';
+        body.appendChild(el('div.queue__item' + (failed ? '.queue__item--failed' : ''), [
+          el('div.queue__text', [
+            el('b', { text: info.title }),
+            el('small', { text: info.sub }),
+            failed ? el('p.queue__error', { text: item.error ? item.error.message : t('Not saved') }) : el('p.queue__wait', { text: item.status === 'sending' ? t('Sending…') : t('Waiting to send') })
+          ]),
+          failed ? el('div.queue__actions', [
+            el('button.btn.btn--sm', { type: 'button', onclick: function () { store.retry(item.qid); draw(); } }, t('Try again')),
+            el('button.btn.btn--sm.btn--danger', { type: 'button', onclick: function () { store.discard(item.qid); draw(); } }, t('Remove'))
+          ]) : null
+        ]));
+      });
+    }
+    draw();
+    var off = store.on('change', draw);
+    ui.sheet({
+      title: t('Saves on this phone'),
+      content: [
+        el('p.sheet__message', { text: t('Entries are kept on this phone until the sheet confirms them. Waiting ones are sent by themselves when there is signal.') }),
+        body
+      ],
+      footer: [el('button.btn.btn--primary', { type: 'button', onclick: function () { store.kick(); } }, [ui.icon('refresh'), el('span', { text: t('Send now') })])],
+      onClose: off
     });
   }
 
-  /* Painting the clock must never change the shift: applyShift emits 'shift',
-     which repaints the clock, which would call applyShift again. */
-  function paintClock() {
-    if (!clockNode) return;
-    clockNode.textContent = util.clockLabel() + ' · ' + store.state.shift + ' round' +
-      (store.state.shiftIsAuto ? '' : ' · set by hand');
+  function openMore() {
+    var s = ui.sheet({
+      title: t('More'),
+      content: [
+        el('div.morelist', ROUTES.filter(function (r) { return r.more; }).map(function (r) {
+          return el('button.morelist__item' + (current.path === r.path ? '.is-on' : ''), {
+            type: 'button', onclick: function () { s.close(function () { go(r.path); }); }
+          }, [
+            el('span.morelist__icon', ui.icon(r.icon)),
+            el('span.morelist__text', [el('b', { text: t(r.label) }), el('small', { text: t(r.desc) })]),
+            ui.icon('right', 'morelist__chev')
+          ]);
+        })),
+        el('div.more-quick', [
+          ui.choice({
+            label: t('Language'), name: 'more-lang', value: DX.i18n.get(), columns: 2, compact: true,
+            options: [{ value: 'en', label: 'English' }, { value: 'ta', label: 'தமிழ்' }],
+            onChange: function (v) { s.close(function () { setLanguage(v); }); }
+          }),
+          themeChoice('more-theme')
+        ])
+      ]
+    });
   }
 
-  function tickClock() {
-    if (store.state.shiftIsAuto) store.autoShift();
-    paintClock();
+  function themeChoice(name) {
+    return ui.choice({
+      label: t('Appearance'), name: name, value: DX.theme.get(), columns: 3, compact: true,
+      options: [
+        { value: 'system', label: t('Phone setting'), icon: 'theme' },
+        { value: 'light', label: t('Light'), icon: 'sun' },
+        { value: 'dark', label: t('Dark'), icon: 'moon' }
+      ],
+      onChange: function (v) { DX.theme.set(v); }
+    });
   }
 
-  function renderRoute() {
-    var path = currentPath();
-    var page = pageFor(path);
-    markActive(path);
+  /* ------------------------------------------------------------------ *
+   * Drawing a page
+   * ------------------------------------------------------------------ */
+  function makeCtx(route, sub, token) {
+    var ctx = {
+      route: route.path, sub: sub, token: token,
+      _cleanups: [], _onChange: null, _onRound: null, waiting: false,
+      alive: function () { return current.token === token; },
+      onChange: function (fn) { ctx._onChange = fn; },
+      onRound: function (fn) { ctx._onRound = fn; },
+      cleanup: function (fn) { ctx._cleanups.push(fn); },
+      rerender: function () { if (ctx.alive()) renderRoute({ keepScroll: true }); },
+      retitle: function () { if (ctx.alive()) paintTitle(route, ctx); },
+      /** Changes the part after the page name without adding a Back step. */
+      setSub: function (next) {
+        ctx.sub = next || '';
+        var hash = '#/' + route.path + (ctx.sub ? '/' + ctx.sub : '');
+        try { history.replaceState(history.state, '', hash); } catch (err) { /* ignore */ }
+        paintTitle(route, ctx);
+      },
+      go: go
+    };
+    return ctx;
+  }
+
+  function loading() {
+    return el('div.loading', [
+      el('div.skeleton', { style: 'height:110px' }),
+      el('div.skeleton', { style: 'height:64px' }),
+      el('div.skeleton', { style: 'height:220px' })
+    ]);
+  }
+
+  function renderRoute(opts) {
+    opts = opts || {};
+    var parsed = parseHash();
+    var route = parsed.route;
+    var samePage = current.path === route.path;
+    var scrollY = window.scrollY;
+
+    if (current.ctx) {
+      current.ctx._cleanups.forEach(function (fn) { try { fn(); } catch (err) { /* ignore */ } });
+    }
     DX.charts.hideTip();
 
-    if (!page) { location.hash = '#/dashboard'; return; }
+    current.token++;
+    var ctx = makeCtx(route, parsed.sub, current.token);
+    current.ctx = ctx;
+    current.path = route.path;
+    paintNav(route);
+    paintTitle(route, ctx);
 
-    titleNode.textContent = page.title;
-    subtitleNode.textContent = typeof page.subtitle === 'function' ? page.subtitle() : (page.subtitle || '');
-
-    if (path !== 'settings' && !store.state.ready) {
-      util.clear(view);
-      view.appendChild(util.el('div.card', [util.el('div.card__body', [
-        util.el('div.skeleton', { style: 'height:22px;width:40%;margin-bottom:12px' }),
-        util.el('div.skeleton', { style: 'height:120px' })
-      ])]));
-      return;
+    util.clear(view);
+    if (!store.status().ready && route.path !== 'settings') {
+      ctx.waiting = true;
+      var err = store.status().syncError;
+      view.appendChild(err ? offlineFirstRun(err) : loading());
+    } else {
+      var page = DX.pages[route.page];
+      try {
+        page.render(view, ctx);
+      } catch (e) {
+        if (window.console) console.error(e);
+        util.clear(view);
+        view.appendChild(ui.empty(t('This page could not be drawn'), e.message || String(e),
+          el('button.btn', { type: 'button', onclick: function () { renderRoute(); } }, t('Try again'))));
+      }
+      paintTitle(route, ctx);
     }
 
-    if (page.reset) page.reset();
-    util.clear(view);
-    try {
-      page.render(view);
-    } catch (err) {
-      console.error(err);
-      util.clear(view);
-      view.appendChild(ui.empty('This page could not be drawn', err.message || String(err),
-        util.el('button.btn', { type: 'button', onclick: function () { renderRoute(); } }, 'Try again')));
+    if (opts.keepScroll) window.scrollTo(0, scrollY);
+    else if (!samePage || opts.top) window.scrollTo(0, 0);
+    if (!samePage && !opts.keepScroll) {
+      try { view.focus({ preventScroll: true }); } catch (e2) { /* ignore */ }
+      if (SYNC_ON_VISIT[route.path]) store.syncIfStale();
     }
   }
 
-  /* ---------------------------------------------------------------- *
-   * First run
-   * ---------------------------------------------------------------- */
+  function offlineFirstRun(err) {
+    var info = ui.explain(err);
+    return el('div.firstrun', [
+      ui.banner('error', info.title, info.detail),
+      el('div.btnrow', [
+        el('button.btn.btn--primary', { type: 'button', onclick: function () { renderRoute(); store.sync(); } }, [ui.icon('refresh'), el('span', { text: t('Try again') })]),
+        el('a.btn', { href: '#/settings' }, [ui.icon('settings'), el('span', { text: t('Open Settings') })])
+      ])
+    ]);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * First run: no sheet link on this device and none built in.
+   * ------------------------------------------------------------------ */
   function showWelcome() {
     document.getElementById('shell').hidden = true;
     var host = document.getElementById('welcome');
@@ -176,119 +376,111 @@ DX.app = (function () {
     util.clear(host);
 
     var urlField = ui.field({
-      label: 'Apps Script web-app link', name: 'apiUrl',
+      label: t('Apps Script web-app link'), name: 'apiUrl',
       placeholder: 'https://script.google.com/macros/s/…/exec',
-      hint: 'Copy it from Deploy → Manage deployments in the Apps Script editor.'
+      hint: t('Copy it from Deploy → Manage deployments in the Apps Script editor.')
     });
-    var connectBtn = util.el('button.btn.btn--primary.btn--block', { type: 'submit' }, 'Connect this device');
-    var form = util.el('form', { novalidate: true }, [urlField, util.el('div.form-actions', [connectBtn])]);
-
+    var connectBtn = el('button.btn.btn--primary.btn--block', { type: 'submit' }, t('Connect this phone'));
+    var form = el('form', { novalidate: true }, [urlField, el('div.btnrow', [connectBtn])]);
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       ui.clearFieldErrors(form);
       var url = urlField.control.value.trim();
       if (!DX.config.looksValid(url)) {
-        ui.setFieldError(urlField.control, 'The link should start with https://script.google.com/macros/s/ and end in /exec.');
+        ui.setFieldError(urlField.control, t('The link should start with https://script.google.com/macros/s/ and end in /exec.'));
         return;
       }
       DX.config.set(url);
-      ui.busy(connectBtn, true, 'Connecting…');
-      DX.api.ping().then(function () {
-        location.reload();
-      }).catch(function (err) {
+      ui.busy(connectBtn, true, t('Connecting…'));
+      DX.api.ping().then(function () { location.reload(); }).catch(function (err) {
         DX.config.clear();
         ui.reportError(err, form);
         ui.busy(connectBtn, false);
       });
     });
 
-    host.appendChild(util.el('div.setup', [
-      util.el('div.card', [
-        util.el('div.card__head', [
-          util.el('h1', 'Connect to your milk register'),
-          util.el('p', 'One link, once per phone.')
-        ]),
-        util.el('div.card__body', [
-          util.el('ol', [
-            util.el('li', [util.el('b', 'Create the sheet.'), ' A blank Google Sheet, named however you like.']),
-            util.el('li', [util.el('b', 'Add the script.'), ' Extensions → Apps Script, paste in Code.gs from this repo, save.']),
-            util.el('li', [util.el('b', 'Build the tabs.'), ' Run ', util.el('code', 'setup'), ' once and approve the permission prompt.']),
-            util.el('li', [util.el('b', 'Deploy it.'), ' Deploy → New deployment → Web app. Execute as ', util.el('code', 'Me'), ', access ', util.el('code', 'Anyone'), '.']),
-            util.el('li', [util.el('b', 'Paste the link below.'), ' It ends in ', util.el('code', '/exec'), '.'])
+    host.appendChild(el('div.setup', [
+      el('div.card', [
+        el('div.card__head', [el('h1', { text: t('Connect to your milk register') }), el('p', { text: t('One link, once per phone.') })]),
+        el('div.card__body', [
+          el('ol', [
+            el('li', t('Create a blank Google Sheet.')),
+            el('li', t('Extensions → Apps Script, paste in Code.gs from this project, save.')),
+            el('li', t('Run setup once and allow the permission prompt.')),
+            el('li', t('Deploy → New deployment → Web app. Execute as Me, access Anyone.')),
+            el('li', t('Paste the link below. It ends in /exec.'))
           ]),
           form
-        ]),
-        util.el('div.card__foot', 'The full walkthrough is in docs/SETUP.md in this repository.')
+        ])
       ])
     ]));
   }
 
-  /* ---------------------------------------------------------------- *
-   * Boot
-   * ---------------------------------------------------------------- */
+  /* ------------------------------------------------------------------ *
+   * Start
+   * ------------------------------------------------------------------ */
   function start() {
+    DX.i18n.stamp();
+    DX.theme.apply(DX.theme.get());
     view = document.getElementById('view');
     titleNode = document.getElementById('page-title');
-    subtitleNode = document.getElementById('page-subtitle');
-    clockNode = document.getElementById('clock-label');
-
-    document.body.dataset.shift = util.detectShift(12);
+    subNode = document.getElementById('page-sub');
+    pillNode = document.getElementById('sync-pill');
+    langNode = document.getElementById('lang-toggle');
+    railNode = document.getElementById('rail');
+    tabNode = document.getElementById('tabbar');
 
     if (!DX.config.get()) { showWelcome(); return; }
 
-    buildNav();
-    window.addEventListener('hashchange', renderRoute);
+    store.init();
+    buildShell();
 
-    var themeBtn = document.getElementById('theme-toggle');
-    function paintTheme() {
-      var choice = DX.theme.get();
-      themeBtn.setAttribute('aria-label', 'Appearance: ' + DX.theme.label(choice) + '. Click to change.');
-      themeBtn.title = DX.theme.label(choice);
-      themeBtn.dataset.theme = choice;
-      themeBtn.innerHTML = THEME_ICONS[choice];
+    pillNode.addEventListener('click', onPill);
+    langNode.addEventListener('click', function () { setLanguage(DX.i18n.get() === 'ta' ? 'en' : 'ta'); });
+    window.addEventListener('hashchange', function () { renderRoute(); });
+    if (window.matchMedia) {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      var follow = function () { DX.theme.apply(DX.theme.get()); };
+      if (mq.addEventListener) mq.addEventListener('change', follow); else if (mq.addListener) mq.addListener(follow);
     }
-    themeBtn.addEventListener('click', function () {
-      var choice = DX.theme.next();
-      paintTheme();
-      ui.say.ok('Appearance: ' + DX.theme.label(choice).toLowerCase(),
-        choice === 'system' ? 'Follows whatever your phone or computer is set to.' : 'Remembered on this device.');
+
+    store.on('status', paintPill);
+    store.on('change', function () {
+      var ctx = current.ctx;
+      if (!ctx || !ctx.alive()) return;
+      var brand = document.getElementById('brand-name');
+      if (brand) brand.textContent = store.businessName();
+      if (ctx.waiting) {
+        if (store.status().ready) renderRoute({ keepScroll: true });
+        return;
+      }
+      if (ctx._onChange) {
+        try { ctx._onChange(); } catch (err) { if (window.console) console.error(err); }
+      }
+      paintTitle(routeFor(current.path), ctx);
     });
-    paintTheme();
-    DX.app.paintTheme = paintTheme;
-
-    document.getElementById('refresh').addEventListener('click', function () {
-      var btn = this;
-      ui.busy(btn, true, 'Refreshing…');
-      store.refresh().then(function () {
-        renderRoute();
-        ui.say.ok('Up to date', 'Read straight from the sheet.');
-      }).then(function () { ui.busy(btn, false); });
+    store.on('round', function () {
+      var ctx = current.ctx;
+      if (ctx && ctx.alive() && ctx._onRound) ctx._onRound(store.round());
+    });
+    store.on('failed', function (item) {
+      var who = item.data && (item.data.name || '');
+      ui.say.error(t('Not saved'), (item.error && item.error.message) || who || '');
+    });
+    store.on('warning', function (w) { ui.say.warn(t('Please check'), w.message); });
+    store.on('syncFailed', function () {
+      var ctx = current.ctx;
+      if (ctx && ctx.waiting) renderRoute({ keepScroll: true });
     });
 
-    store.on('shift', paintClock);
-    setInterval(tickClock, 60000);
-
-    if (!location.hash) location.hash = '#/dashboard';
+    if (!location.hash || parseHash().unknown) {
+      try { history.replaceState(null, '', '#/home'); } catch (err) { location.hash = '#/home'; }
+    }
     renderRoute();
-    tickClock();
-
-    store.load().then(function () {
-      document.getElementById('brand-name').textContent = store.businessName();
-      renderRoute();
-      tickClock();
-    }).catch(function (err) {
-      util.clear(view);
-      view.appendChild(util.el('div.banner.banner--error', [
-        util.el('div.banner__body', [
-          util.el('strong', ui.explain(err).title),
-          util.el('p', { text: ui.explain(err).detail, style: 'margin:2px 0 10px' }),
-          util.el('a.btn.btn--sm', { href: '#/settings' }, 'Open Settings')
-        ])
-      ]));
-    });
+    store.sync();
   }
 
-  return { start: start, renderRoute: function () { renderRoute(); }, paintTheme: function () {} };
+  return { start: start, go: go, renderRoute: renderRoute, routes: ROUTES, themeChoice: themeChoice, setLanguage: setLanguage, openQueue: openQueue };
 })();
 
 document.addEventListener('DOMContentLoaded', DX.app.start);
